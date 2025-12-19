@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Penderecki Garden Style Preview</title>
+    <title>Afterglow</title>
     <style>
         :root {
             --primary: #fff;
@@ -31,7 +31,7 @@
         /* 左側面板 - 提升層級並確保可點擊 */
         #control-panel {
             position: absolute; top: 30px; left: 30px; 
-            pointer-events: auto; /* 關鍵：允許點擊 */
+            pointer-events: auto; /* 關鍵：允許點�?*/
             z-index: 100; 
             
             display: flex; flex-direction: column; gap: 15px; width: 220px;
@@ -65,20 +65,20 @@
             padding: 20px; display: flex; flex-direction: column; gap: 15px; /* 稍微縮小間距 */
             transform: translateX(120%); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
             
-            /* --- 滾動條設置 --- */
+            /* --- 滾動條設�?--- */
             max-height: calc(100vh - 120px); /* 限制最大高度，確保底部不被切斷 */
             overflow-y: auto; /* 超出高度時自動顯示滾動條 */
-            overscroll-behavior: contain; /* 防止滾動面板時連帶滾動整個頁面 */
+            overscroll-behavior: contain; /* 防止滾動面板時連帶滾動整個頁�?*/
             
             box-shadow: -5px 0 30px rgba(0,0,0,0.5);
 
-            /* Firefox 滾動條支持 */
+            /* Firefox 滾動條支�?*/
             scrollbar-width: thin;
             scrollbar-color: rgba(255,255,255,0.2) transparent;
         }
         #effect-panel.open { transform: translateX(0); }
 
-        /* Webkit (Chrome/Safari) 滾動條樣式 */
+        /* Webkit (Chrome/Safari) 滾動條樣�?*/
         #effect-panel::-webkit-scrollbar { width: 4px; }
         #effect-panel::-webkit-scrollbar-track { background: transparent; }
         #effect-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
@@ -232,7 +232,7 @@
 
         <!-- 左側面板 -->
         <div id="control-panel">
-            <div style="font-size: 10px; color: #888; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px;">WORKSTATION</div>
+            <div style="font-size: 10px; color: #888; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px;">AFTERGLOW WORKSTATION</div>
             <div class="action-row">
                 <div class="btn upload-btn-wrapper">
                     <span>Upload</span>
@@ -247,12 +247,12 @@
 
         <!-- 展館導航 -->
         <div id="gallery-ui" class="hidden">
-            <button id="back-btn" class="btn" style="position:absolute; top:30px; left:30px; width:auto; padding:10px 25px; z-index:200;">← Workstation</button>
-            <div class="nav-zone left" id="prev-zone"><div class="arrow">‹</div></div>
-            <div class="nav-zone right" id="next-zone"><div class="arrow">›</div></div>
+                        <button id="back-btn" class="btn" style="position:absolute; top:30px; left:30px; width:auto; padding:10px 25px; z-index:200;">&larr; Workstation</button>
+                        <div class="nav-zone left" id="prev-zone"><div class="arrow">&larr;</div></div>
+                        <div class="nav-zone right" id="next-zone"><div class="arrow">&rarr;</div></div>
             <div id="gallery-info">
                 <div id="gallery-counter">MEMORY 01</div>
-                <div style="font-size: 10px; opacity: 0.6; letter-spacing: 2px;">LINEAR ARCHIVE</div>
+                <div style="font-size: 10px; opacity: 0.6; letter-spacing: 2px;">AFTERGLOW ARCHIVE</div>
             </div>
         </div>
     </div>
