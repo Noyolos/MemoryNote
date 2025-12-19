@@ -1,4 +1,4 @@
-# AGENT.md
+ï»¿# AGENT.md
 
 ## 0) One-liner
 Afterglow is a personal "memory palace" that turns a photo (and future AI context) into a saved 3D particle memory you can revisit.
@@ -26,7 +26,8 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 ### Repo reality (today)
 - Vite + Three.js interactive particle memory viewer.
 - User uploads an image; it becomes the particle texture.
-- Archived memories now persist locally via IndexedDB (thumb + render blobs); hall navigation works across refresh.
+- Archived memories persist locally via IndexedDB (thumb + render blobs with lazy hi-res load); hall navigation works across refresh.
+- UI overlays include a black void background, top navbar, and a mic placeholder button. Inspect/rotate uses OrbitControls (rotate only, no pan/zoom).
 - No AI chat/summarization yet.
 
 ---
@@ -43,43 +44,47 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 
 ---
 ## 4) Repo Map
-- `index.html` ¡ª static shell, DOM IDs, loads `/src/main.js`.
-- `src/main.js` ¡ª boots the app by instantiating `App`.
-- `src/app.js` ¡ª scene setup, render loop, UI bindings (upload, archive, hall navigation), persistence wiring.
-- `src/dom.js` ¡ª DOM queries for controls.
-- `src/material.js` ¡ª ShaderMaterial factory + clone helper for per-memory uniforms.
-- `src/shaders.js` ¡ª vertex/fragment shaders for deformation/erosion/dispersion/grid overlay.
-- `src/particles.js` ¡ª particle geometry generator.
-- `src/storage/idb.js` ¡ª IndexedDB WebStorageProvider, schemaVersion 1.
-- `package.json` / `package-lock.json` ¡ª scripts (`dev`, `build`, `preview`), deps (`three@0.128.0`, dev `vite@^5.0.0`).
-- `README.md` ¡ª brief run/build notes.
+- `index.html` â€” static shell, DOM IDs, loads `/src/main.js`; includes top navbar overlay and bottom mic placeholder UI (UI-only).
+- `src/main.js` â€” boots the app by instantiating `App`.
+- `src/app.js` â€” scene setup, render loop, UI bindings (upload, archive, hall navigation), persistence wiring, OrbitControls inspect.
+- `src/dom.js` â€” DOM queries for controls.
+- `src/material.js` â€” ShaderMaterial factory + clone helper for per-memory uniforms.
+- `src/shaders.js` â€” vertex/fragment shaders for deformation/erosion/dispersion/grid overlay.
+- `src/particles.js` â€” particle geometry generator.
+- `src/storage/idb.js` â€” IndexedDB WebStorageProvider, schemaVersion 1.
+- `package.json` / `package-lock.json` â€” scripts (`dev`, `build`, `preview`), deps (`three@0.128.0`, dev `vite@^5.0.0`).
+- `README.md` â€” brief run/build notes.
 
 ---
 ## 5) Entry Points & Behavior
 - `index.html` defines required elements/IDs: `#canvas-container`, `#fileInput`, `#archiveBtn`, `#enter-hall-btn`, `#back-btn`, `#prev-zone`, `#next-zone`, sliders, etc.
+- Overlay UI includes a top navbar (brand/links/icons) and a bottom-center mic button plus voice overlay (`#af-voice-overlay`, `#af-voice-pill`, `#af-voice-bubble`, `#af-voice-sub`); overlays are UI-only and should not block canvas interactions beyond their bounds. CSS uses `--af-nav-offset` to offset top-aligned controls.
 - `src/main.js` creates `App` and starts its loop.
 - `App` (`src/app.js`):
   - Builds Three.js scene, editor particles, shader uniforms.
   - Upload applies processed render texture to the editor; settings sliders update uniforms/layout.
-  - Archive clones the current state into `state.memories`, persists to IndexedDB (thumb + render blobs), and lays out gallery.
-  - Enter/exit hall toggles visibility; gallery navigation adjusts camera and loads high-res render lazily for the current memory.
-  - Mouse parallax + wheel zoom remain.
+  - Archive clones the current state into `state.memories`, persists to IndexedDB (thumb + render blobs), and lays out gallery (newest-first).
+  - Enter/exit hall toggles visibility; gallery navigation adjusts camera target and loads high-res render lazily for the current memory.
+  - Inspect/rotate via OrbitControls on the canvas (mouse/touch drag), damping on; pan/zoom disabled. Wheel still adjusts `viewDistance` and syncs OrbitControls radius.
 
 ---
 ## 6) Smoke Tests (manual)
-1) Boot: `npm run dev` ¡ú page loads without fatal console errors.
-2) Upload: choose JPG/PNG ¡ú particles update to the image; no crashes.
-3) Controls: move sliders ¡ú visual response is immediate; no console spam.
-4) Archive + Hall: archive a memory, enter hall, navigate prev/next ¡ú archived items render and animate independently.
-5) Refresh persistence: archive 3 memories, refresh ¡ú all 3 remain in hall/gallery; navigation works; no fatal errors.
-6) Lazy hi-res: after entering hall, navigating to a memory upgrades its texture to the render blob without freezing UI.
+After any non-trivial change, run these:
+
+1) Boot: `npm run dev` â†’ page loads without fatal console errors.
+2) Upload: choose JPG/PNG â†’ particles update to the image; no crashes.
+3) Controls: move sliders â†’ visual response is immediate; no console spam.
+4) Inspect drag: drag on canvas (mouse or one-finger touch) â†’ camera orbits smoothly with damping; UI overlays remain clickable.
+5) Archive + Hall: archive a memory, enter hall, navigate prev/next â†’ archived items render and animate independently.
+6) Refresh persistence: archive 3 memories, refresh â†’ all 3 remain in hall/gallery; navigation works; no fatal errors.
+7) Lazy hi-res: after entering hall, navigating to a memory upgrades its texture to the render blob without freezing UI.
 
 ---
 ## 7) Current Status / Known Issues
 - Persistence: IndexedDB (DB `memory-particles`, version 1). Memories store metadata + blob keys; assets stored as blobs (thumb <=512px, render <=1536px). schemaVersion = 1.
 - Restore flow: loads metadata, then thumb blobs for initial gallery; render blobs load lazily when a memory becomes active.
 - Corrupted/missing assets are skipped with warnings; app continues.
-- UI text still has mojibake arrow/back labels in `index.html` (known cleanup item).
+- UI overlays: black background, top navbar, mic placeholder; inspect rotation via OrbitControls (rotate only, no pan/zoom).
 - No automated tests or CI.
 
 ---
@@ -92,7 +97,7 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 
 ---
 ## 9) Backlog (prioritized, acceptance criteria)
-- P0: Fix mojibake arrow/back labels in `index.html`. Acceptance: labels render correctly (ASCII or HTML entities), no DOM ID changes, `npm run build` passes.
+- P0: Inspect UI polish. Acceptance: navbar/mic overlays remain functional; OrbitControls inspect works on mouse/touch with damping; background stays pure black; `npm run build` passes.
 - P1: Native/mobile storage provider parity. Acceptance: implement native provider stub (Capacitor-ready) with same schemaVersion and blob separation; documented in AGENT/README; web still works.
 - P2: Chat/summary stub. Acceptance: local chat UI attaches messages to current memory; stub summary string; no network by default; AGENT/README updated.
 
@@ -102,6 +107,7 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 - Do not change shader uniform semantics or material cloning without documenting and updating dependents.
 - Do not swap frameworks/tooling (keep Vite + Three.js) unless explicitly requested.
 - Keep persistence contract (IndexedDB schemaVersion 1, blob separation) unless updated here + in code.
+- Keep OrbitControls inspect behavior rotate-only (no pan/zoom); if changed, document here and update UI expectations.
 
 ---
 ## 11) Assumptions

@@ -4,6 +4,7 @@ export function getDom() {
   return {
     container: byId("canvas-container"),
     loading: byId("loading"),
+    nav: document.querySelector(".af-nav"),
 
     toggleBtn: byId("settings-toggle"),
     effectPanel: byId("effect-panel"),
@@ -19,6 +20,12 @@ export function getDom() {
     galleryUI: byId("gallery-ui"),
     galleryCounter: byId("gallery-counter"),
     memoryCount: byId("memory-count"),
+
+    micButton: byId("af-mic-button"),
+    voiceOverlay: byId("af-voice-overlay"),
+    voicePillText: byId("af-voice-pill-text"),
+    voiceBubbleText: byId("af-voice-bubble-text"),
+    voiceSubText: byId("af-voice-sub"),
 
     // sliders
     sliders: {

@@ -1,5 +1,5 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
+﻿<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,30 +10,33 @@
             --accent: #888;
             --bg-glass: rgba(10, 10, 10, 0.85);
             --border-glass: rgba(255, 255, 255, 0.15);
+            --af-nav-h: 56px;
+            --af-nav-offset: calc(var(--af-nav-h) + env(safe-area-inset-top, 0px));
         }
 
-        body {
+        html, body {
             margin: 0;
             overflow: hidden;
-            background-color: #050505;
+            background-color: #000;
             font-family: 'Courier New', Courier, monospace;
             color: var(--primary);
             user-select: none;
+            width: 100%;
+            height: 100%;
         }
         #canvas-container { width: 100vw; height: 100vh; display: block; position: absolute; top: 0; left: 0; z-index: 1; }
 
-        /* --- UI 架構 --- */
+        /* UI layout */
         #ui-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none; z-index: 10;
         }
 
-        /* 左側面板 - 提升層級並確保可點擊 */
+        /* Left panel */
         #control-panel {
-            position: absolute; top: 30px; left: 30px; 
-            pointer-events: auto; /* 關鍵：允許點�?*/
-            z-index: 100; 
-            
+            position: absolute; top: calc(var(--af-nav-offset, 56px) + 12px); left: 30px;
+            pointer-events: auto;
+            z-index: 100;
             display: flex; flex-direction: column; gap: 15px; width: 220px;
             background: var(--bg-glass); padding: 20px;
             border: 1px solid var(--border-glass);
@@ -41,12 +44,10 @@
             box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
             transition: opacity 0.5s, transform 0.5s;
         }
-        
-        /* 右側特效控制面板 */
+        /* Right panel toggle */
         #settings-toggle {
-            position: absolute; top: 30px; right: 30px; 
+            position: absolute; top: calc(var(--af-nav-offset, 56px) + 12px); right: 30px;
             pointer-events: auto; z-index: 100;
-            
             width: 40px; height: 40px; border-radius: 8px;
             background: var(--bg-glass); border: 1px solid var(--border-glass);
             display: flex; align-items: center; justify-content: center;
@@ -57,28 +58,20 @@
         #settings-toggle.active { background: var(--primary); color: #000; }
 
         #effect-panel {
-            position: absolute; top: 80px; right: 30px; width: 260px; 
+            position: absolute; top: calc(var(--af-nav-offset, 56px) + 62px); right: 30px; width: 260px;
             pointer-events: auto; z-index: 90;
-            
             background: var(--bg-glass); border: 1px solid var(--border-glass);
             backdrop-filter: blur(15px); border-radius: 12px;
-            padding: 20px; display: flex; flex-direction: column; gap: 15px; /* 稍微縮小間距 */
+            padding: 20px; display: flex; flex-direction: column; gap: 15px;
             transform: translateX(120%); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-            
-            /* --- 滾動條設�?--- */
-            max-height: calc(100vh - 120px); /* 限制最大高度，確保底部不被切斷 */
-            overflow-y: auto; /* 超出高度時自動顯示滾動條 */
-            overscroll-behavior: contain; /* 防止滾動面板時連帶滾動整個頁�?*/
-            
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
+            overscroll-behavior: contain;
             box-shadow: -5px 0 30px rgba(0,0,0,0.5);
-
-            /* Firefox 滾動條支�?*/
             scrollbar-width: thin;
             scrollbar-color: rgba(255,255,255,0.2) transparent;
         }
         #effect-panel.open { transform: translateX(0); }
-
-        /* Webkit (Chrome/Safari) 滾動條樣�?*/
         #effect-panel::-webkit-scrollbar { width: 4px; }
         #effect-panel::-webkit-scrollbar-track { background: transparent; }
         #effect-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
@@ -86,10 +79,8 @@
 
         .section-title {
             font-size: 10px; color: var(--accent); letter-spacing: 2px; text-transform: uppercase;
-            border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-bottom: 5px;
-            margin-top: 5px;
+            border-bottom: 1px solid var(--border-glass); padding-bottom: 5px; margin-bottom: 5px; margin-top: 5px;
         }
-        /* 第一個標題不需要上邊距 */
         .section-title:first-child { margin-top: 0; }
 
         .control-group { margin-bottom: 5px; }
@@ -114,23 +105,22 @@
         }
         input[type=range]:active::-webkit-slider-thumb { transform: scale(1.2); }
 
-        /* 按鈕樣式 */
         .btn {
-            border: 1px solid rgba(255, 255, 255, 0.2); color: #ccc; 
-            background: rgba(255, 255, 255, 0.05); padding: 12px 0; 
+            border: 1px solid rgba(255, 255, 255, 0.2); color: #ccc;
+            background: rgba(255, 255, 255, 0.05); padding: 12px 0;
             font-size: 11px; font-weight: bold; cursor: pointer;
             text-transform: uppercase; letter-spacing: 1px; width: 100%; text-align: center;
             transition: all 0.3s; flex: 1; border-radius: 4px;
             pointer-events: auto; position: relative; z-index: 10;
         }
         .btn:hover { background: rgba(255, 255, 255, 0.15); border-color: #fff; color: #fff; }
-        
-        .upload-btn-wrapper input[type=file] { 
+
+        .upload-btn-wrapper input[type=file] {
             position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; height: 100%; width: 100%; z-index: 20;
         }
 
         .hidden { opacity: 0; pointer-events: none !important; }
-        
+
         .nav-zone {
             position: absolute; top: 0; height: 100%; width: 10%; z-index: 12; cursor: pointer;
             display: flex; align-items: center; justify-content: center;
@@ -146,28 +136,172 @@
             color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.8);
         }
         #gallery-counter { font-size: 24px; letter-spacing: 8px; font-weight: 300; margin-bottom: 5px; }
-        
+
         #loading {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            font-size: 12px; opacity: 0; pointer-events: none; z-index: 200; 
+            font-size: 12px; opacity: 0; pointer-events: none; z-index: 200;
             letter-spacing: 4px; background: #000; padding: 10px 20px; border: 1px solid #fff; color: #fff;
         }
 
-        .bg-grid {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-image:
-                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-            background-size: 40px 40px; pointer-events: none; z-index: 0;
+        /* Top navbar */
+        .af-nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 30;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 28px;
+            pointer-events: auto;
+            background: linear-gradient(180deg, rgba(0,0,0,0.7), rgba(0,0,0,0));
+            backdrop-filter: blur(6px);
+        }
+        .af-nav__brand {
+            font-size: 14px;
+            letter-spacing: 3px;
+            font-weight: 700;
+        }
+        .af-nav__center {
+            display: flex;
+            gap: 24px;
+            font-size: 12px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.9);
+        }
+        .af-nav__link {
+            cursor: pointer;
+            transition: opacity 0.2s;
+            pointer-events: auto;
+        }
+        .af-nav__link:hover { opacity: 0.7; }
+        .af-nav__right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .af-icon {
+            width: 18px;
+            height: 18px;
+            opacity: 0.85;
+        }
+
+        /* Mic placeholder */
+        .af-mic {
+            position: fixed;
+            bottom: 32px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 25;
+            pointer-events: auto;
+        }
+        .af-mic__button {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            border: 1px solid rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.06);
+            color: #fff;
+            backdrop-filter: blur(4px);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .af-mic__button:hover {
+            background: rgba(255,255,255,0.12);
+            border-color: rgba(255,255,255,0.6);
+        }
+        .af-mic__button svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Voice overlay */
+        #af-voice-overlay {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none;
+            gap: 12px;
+            z-index: 20;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        #af-voice-overlay.active { opacity: 1; }
+        #af-voice-pill {
+            margin-top: calc(var(--af-nav-offset, 56px) + 10px);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.18);
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+        #af-voice-pill .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ff6b6b;
+            box-shadow: 0 0 8px rgba(255,107,107,0.6);
+        }
+        #af-voice-bubble {
+            min-width: 260px;
+            max-width: 420px;
+            padding: 14px 18px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.15);
+            backdrop-filter: blur(8px);
+            color: #fff;
+            text-align: center;
+        }
+        #af-voice-bubble-text {
+            font-size: 13px;
+            line-height: 1.4;
+            opacity: 0.92;
+        }
+        #af-voice-sub {
+            margin-top: 6px;
+            font-size: 11px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            opacity: 0.65;
         }
     </style>
 </head>
 <body>
-    <div class="bg-grid"></div>
+    <div class="af-nav">
+        <div class="af-nav__brand">AFTERGLOW</div>
+        <div class="af-nav__center">
+            <div class="af-nav__link">THE GARDEN</div>
+            <div class="af-nav__link">MEMORY</div>
+            <div class="af-nav__link">MUSIC</div>
+            <div class="af-nav__link">INFO</div>
+        </div>
+        <div class="af-nav__right">
+            <svg class="af-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 9v6M8 5v14M12 3v18M16 8v8M20 6v12"/>
+            </svg>
+            <svg class="af-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </div>
+    </div>
+
     <div id="loading">PROCESSING...</div>
 
     <div id="ui-layer">
-        <!-- 設置開關 -->
         <div id="settings-toggle" title="Toggle Controls">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="3"></circle>
@@ -175,7 +309,6 @@
             </svg>
         </div>
 
-        <!-- 右側特效面板 -->
         <div id="effect-panel">
             <div class="section-title">COLOR & LIGHT</div>
             <div class="control-group">
@@ -192,7 +325,7 @@
                 <div class="control-label">Particle Size <span class="control-value" id="val-particleSize">6.0</span></div>
                 <input type="range" id="inp-particleSize" min="1" max="15" step="0.5" value="6.0">
             </div>
-             <div class="control-group">
+            <div class="control-group">
                 <div class="control-label">Grid Opacity <span class="control-value" id="val-gridOpacity">0.3</span></div>
                 <input type="range" id="inp-gridOpacity" min="0" max="1" step="0.1" value="0.3">
             </div>
@@ -202,11 +335,11 @@
                 <div class="control-label">Erosion Speed <span class="control-value" id="val-erosionSpeed">0.2</span></div>
                 <input type="range" id="inp-erosionSpeed" min="0" max="1" step="0.05" value="0.2">
             </div>
-             <div class="control-group">
+            <div class="control-group">
                 <div class="control-label">Wave Amp <span class="control-value" id="val-waveAmplitude">0.05</span></div>
                 <input type="range" id="inp-waveAmplitude" min="0" max="0.5" step="0.01" value="0.05">
             </div>
-             <div class="control-group">
+            <div class="control-group">
                 <div class="control-label">Wave Speed <span class="control-value" id="val-waveSpeed">0.2</span></div>
                 <input type="range" id="inp-waveSpeed" min="0" max="1" step="0.05" value="0.2">
             </div>
@@ -218,7 +351,7 @@
                 <div class="control-label">Roughness <span class="control-value" id="val-edgeRoughness">1.0</span></div>
                 <input type="range" id="inp-edgeRoughness" min="0" max="3" step="0.1" value="1.0">
             </div>
-             <div class="control-group">
+            <div class="control-group">
                 <div class="control-label">Safe Area <span class="control-value" id="val-stableRadius">0.42</span></div>
                 <input type="range" id="inp-stableRadius" min="0.1" max="0.5" step="0.01" value="0.42">
             </div>
@@ -230,7 +363,6 @@
             </div>
         </div>
 
-        <!-- 左側面板 -->
         <div id="control-panel">
             <div style="font-size: 10px; color: #888; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px;">AFTERGLOW WORKSTATION</div>
             <div class="action-row">
@@ -245,11 +377,10 @@
             </button>
         </div>
 
-        <!-- 展館導航 -->
         <div id="gallery-ui" class="hidden">
-                        <button id="back-btn" class="btn" style="position:absolute; top:30px; left:30px; width:auto; padding:10px 25px; z-index:200;">&larr; Workstation</button>
-                        <div class="nav-zone left" id="prev-zone"><div class="arrow">&larr;</div></div>
-                        <div class="nav-zone right" id="next-zone"><div class="arrow">&rarr;</div></div>
+            <button id="back-btn" class="btn" style="position:absolute; top:calc(var(--af-nav-offset, 56px) + 10px); left:30px; width:auto; padding:10px 25px; z-index:200;">&larr; Workstation</button>
+            <div class="nav-zone left" id="prev-zone"><div class="arrow">&larr;</div></div>
+            <div class="nav-zone right" id="next-zone"><div class="arrow">&rarr;</div></div>
             <div id="gallery-info">
                 <div id="gallery-counter">MEMORY 01</div>
                 <div style="font-size: 10px; opacity: 0.6; letter-spacing: 2px;">AFTERGLOW ARCHIVE</div>
@@ -258,6 +389,23 @@
     </div>
 
     <div id="canvas-container"></div>
+    <div id="af-voice-overlay" class="af-voice--hidden">
+        <div id="af-voice-pill"><span class="dot"></span><span id="af-voice-pill-text">Gemini — Idle</span></div>
+        <div id="af-voice-bubble">
+            <div id="af-voice-bubble-text">Tap the mic to start listening.</div>
+            <div id="af-voice-sub">Idle</div>
+        </div>
+    </div>
+    <div class="af-mic">
+        <button id="af-mic-button" class="af-mic__button" title="Voice / Chat (coming soon)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="22"/>
+                <line x1="8" y1="22" x2="16" y2="22"/>
+            </svg>
+        </button>
+    </div>
 
     <script type="module" src="/src/main.js"></script>
 </body>

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { getDom } from "./dom.js";
 import { createParticleGeometry } from "./particles.js";
 import { createEditorMaterial, cloneMaterialFromSettings } from "./material.js";
@@ -18,6 +19,24 @@ const IMAGE_QUALITY = {
   thumbJpeg: 0.8,
   renderWebp: 0.8,
   renderJpeg: 0.85,
+};
+
+const VOICE_STATES = {
+  idle: {
+    pill: "Gemini — Idle",
+    bubble: "Tap the mic to start listening.",
+    sub: "Idle",
+  },
+  listening: {
+    pill: "Gemini — Listening",
+    bubble: "I'm listening. Describe this memory or feeling.",
+    sub: "Listening...",
+  },
+  thinking: {
+    pill: "Gemini — Thinking",
+    bubble: "Let me reflect on that. I'll summarize shortly.",
+    sub: "Thinking...",
+  },
 };
 
 // Keep defaults close to your prototype
@@ -162,6 +181,8 @@ export class App {
     this.dom = getDom();
     this.storage = new WebStorageProvider();
     this.textureLoader = new THREE.TextureLoader();
+    this.desiredTarget = new THREE.Vector3(0, 0, 0);
+    this.voiceState = "idle";
 
     this.settings = { ...DEFAULT_SETTINGS };
     this.state = {
@@ -191,17 +212,18 @@ export class App {
     const { container } = this.dom;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x050505, 0.05);
+    this.scene.background = new THREE.Color(0x000000);
+    this.scene.fog = new THREE.FogExp2(0x000000, 0.05);
 
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.camera.position.z = this.settings.viewDistance;
 
     this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
-    window.__AF = window.__AF || {};
-window.__AF.renderer = this.renderer;
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setClearColor(0x000000, 1);
     container.appendChild(this.renderer.domElement);
+    this.renderer.domElement.style.touchAction = "none";
 
     this.editorGroup = new THREE.Group();
     this.galleryGroup = new THREE.Group();
@@ -215,10 +237,20 @@ window.__AF.renderer = this.renderer;
 
     this.editorGroup.visible = true;
     this.galleryGroup.visible = false;
+
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableRotate = true;
+    this.controls.enablePan = false;
+    this.controls.enableZoom = false;
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
+    this.controls.rotateSpeed = 0.6;
+    this.controls.target.set(0, 0, 0);
+    this._syncControlDistance(this.settings.viewDistance);
   }
 
   _initUI() {
-    const { toggleBtn, effectPanel, sliders } = this.dom;
+    const { toggleBtn, effectPanel, sliders, micButton } = this.dom;
 
     // Right panel toggle
     toggleBtn?.addEventListener("click", () => {
@@ -262,6 +294,16 @@ window.__AF.renderer = this.renderer;
     bind("edgeRoughness", "uEdgeRoughness");
     bind("stableRadius", "uStableRadius");
     bind("galleryGap", null);
+
+    this._updateNavOffset();
+    window.addEventListener("resize", () => this._updateNavOffset());
+
+    micButton?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._nextVoiceState();
+    });
+
+    this._setVoiceState("idle");
   }
 
   _initEvents() {
@@ -286,6 +328,7 @@ window.__AF.renderer = this.renderer;
         const delta = e.deltaY * 0.0025;
         this.settings.viewDistance += delta;
         this.settings.viewDistance = Math.max(0.5, Math.min(this.settings.viewDistance, 8.0));
+        this._syncControlDistance(this.settings.viewDistance);
       },
       { passive: false }
     );
@@ -307,6 +350,7 @@ window.__AF.renderer = this.renderer;
       this.editorMaterial.uniforms.uPixelRatio.value = pr;
       // keep point sizes consistent after DPR changes
       this._updateAllUniforms("uSize", this.settings.particleSize * pr);
+      this._syncControlDistance(this.settings.viewDistance);
     });
 
     // upload -> texture
@@ -383,7 +427,7 @@ window.__AF.renderer = this.renderer;
       this.editorGroup.visible = false;
       this.galleryGroup.visible = true;
 
-      this._updateGalleryTarget();
+      this._updateGalleryTarget(true);
       this._ensureRenderForCurrent();
     });
 
@@ -396,17 +440,24 @@ window.__AF.renderer = this.renderer;
 
       this.editorGroup.visible = true;
       this.galleryGroup.visible = false;
+      this.desiredTarget.set(0, 0, 0);
+      if (this.controls) {
+        const offset = this.camera.position.clone().sub(this.controls.target);
+        this.controls.target.copy(this.desiredTarget);
+        this.camera.position.copy(this.desiredTarget).add(offset);
+        this.controls.update();
+      }
     });
 
     // nav
     prevZone?.addEventListener("click", () => {
       this.state.galleryIndex -= 1;
-      this._updateGalleryTarget();
+      this._updateGalleryTarget(true);
       this._ensureRenderForCurrent();
     });
     nextZone?.addEventListener("click", () => {
       this.state.galleryIndex += 1;
-      this._updateGalleryTarget();
+      this._updateGalleryTarget(true);
       this._ensureRenderForCurrent();
     });
   }
@@ -445,6 +496,7 @@ window.__AF.renderer = this.renderer;
 
     this._updateGalleryLayout();
     if (this.dom.memoryCount) this.dom.memoryCount.innerText = `(${this.state.memories.length})`;
+    if (this.state.memories.length > 0) this._updateGalleryTarget(false);
   }
 
   _serializeMemory(id) {
@@ -561,6 +613,44 @@ window.__AF.renderer = this.renderer;
     });
   }
 
+  _syncControlDistance(distance) {
+    if (!this.controls) return;
+    const target = this.controls.target.clone();
+    const offset = this.camera.position.clone().sub(target);
+    if (offset.lengthSq() < 1e-6) offset.set(0, 0, 1);
+    offset.setLength(distance);
+    this.camera.position.copy(target).add(offset);
+    this.controls.minDistance = distance;
+    this.controls.maxDistance = distance;
+    this.controls.update();
+  }
+
+  _updateNavOffset() {
+    const nav = this.dom.nav;
+    if (!nav) return;
+    const rect = nav.getBoundingClientRect();
+    const root = document.documentElement;
+    root.style.setProperty("--af-nav-h", `${rect.height}px`);
+    root.style.setProperty("--af-nav-offset", `calc(${rect.height}px + env(safe-area-inset-top, 0px))`);
+  }
+
+  _nextVoiceState() {
+    const order = ["idle", "listening", "thinking"];
+    const currentIndex = order.indexOf(this.voiceState);
+    const nextState = order[(currentIndex + 1) % order.length];
+    this._setVoiceState(nextState);
+  }
+
+  _setVoiceState(state) {
+    const config = VOICE_STATES[state] || VOICE_STATES.idle;
+    this.voiceState = state;
+    const { voiceOverlay, voicePillText, voiceBubbleText, voiceSubText } = this.dom;
+    if (voiceOverlay) voiceOverlay.classList.toggle("active", state !== "idle");
+    if (voicePillText) voicePillText.innerText = config.pill;
+    if (voiceBubbleText) voiceBubbleText.innerText = config.bubble;
+    if (voiceSubText) voiceSubText.innerText = config.sub;
+  }
+
   _updateAllUniforms(key, value) {
     if (!key) return;
     if (this.editorMaterial.uniforms[key]) this.editorMaterial.uniforms[key].value = value;
@@ -576,7 +666,7 @@ window.__AF.renderer = this.renderer;
     });
   }
 
-  _updateGalleryTarget() {
+  _updateGalleryTarget(preserveOffset = false) {
     const { galleryCounter } = this.dom;
 
     if (this.state.galleryIndex < 0) this.state.galleryIndex = 0;
@@ -585,6 +675,16 @@ window.__AF.renderer = this.renderer;
     }
 
     this.state.targetCameraX = this.state.galleryIndex * this.settings.galleryGap;
+    this.desiredTarget.x = this.state.targetCameraX;
+    this.desiredTarget.y = 0;
+    this.desiredTarget.z = 0;
+
+    if (preserveOffset && this.controls) {
+      const offset = this.camera.position.clone().sub(this.controls.target);
+      this.controls.target.copy(this.desiredTarget);
+      this.camera.position.copy(this.desiredTarget).add(offset);
+      this.controls.update();
+    }
 
     if (galleryCounter) {
       galleryCounter.innerText = `MEMORY ${String(this.state.galleryIndex + 1).padStart(2, "0")}`;
@@ -611,16 +711,16 @@ window.__AF.renderer = this.renderer;
     if (this.state.mode === "editor") {
       this.editorParticles.rotation.y = Math.sin(time * 0.1) * 0.03 + this.mouseX * 0.05;
       this.editorParticles.rotation.x = Math.cos(time * 0.08) * 0.03 + this.mouseY * 0.05;
+    }
 
-      this.camera.position.x += (0 - this.camera.position.x) * 0.1;
-      this.camera.position.z += (this.settings.viewDistance - this.camera.position.z) * 0.1;
-      this.camera.lookAt(0, 0, 0);
-    } else {
-      this.camera.position.x += (this.state.targetCameraX - this.camera.position.x) * CONFIG.TRANSITION_SPEED;
-      const velocity = Math.abs(this.state.targetCameraX - this.camera.position.x);
-      const targetZ = this.settings.viewDistance + velocity * 1.5;
-      this.camera.position.z += (targetZ - this.camera.position.z) * 0.05;
-      this.camera.lookAt(this.camera.position.x + this.mouseX * 2.0, this.mouseY * 1.0, 0);
+    // smooth target for controls based on desired target
+    if (this.controls) {
+      this.controls.target.lerp(this.desiredTarget, CONFIG.TRANSITION_SPEED);
+      const offset = this.camera.position.clone().sub(this.controls.target);
+      if (offset.lengthSq() < 1e-6) offset.set(0, 0, this.settings.viewDistance);
+      offset.setLength(this.settings.viewDistance);
+      this.camera.position.copy(this.controls.target).add(offset);
+      this.controls.update();
     }
 
     this.renderer.render(this.scene, this.camera);
