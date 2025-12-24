@@ -64,8 +64,9 @@
             backdrop-filter: blur(15px); border-radius: 12px;
             padding: 20px; display: flex; flex-direction: column; gap: 15px;
             transform: translateX(120%); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-            max-height: calc(100vh - 120px);
+            max-height: calc(100vh - var(--af-nav-offset, 56px) - 24px);
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
             overscroll-behavior: contain;
             box-shadow: -5px 0 30px rgba(0,0,0,0.5);
             scrollbar-width: thin;
@@ -182,6 +183,64 @@
             align-items: center;
             gap: 16px;
         }
+        .af-nav__reset {
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            font-size: 9px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            padding: 6px 10px;
+            border-radius: 999px;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .af-nav__reset:hover {
+            background: rgba(255, 255, 255, 0.16);
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+        .af-mode-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 6px;
+            border-radius: 999px;
+            border: 1px solid var(--border-glass);
+            background: var(--bg-glass);
+            font-size: 9px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.75);
+            user-select: none;
+        }
+        .af-mode-toggle__label {
+            padding: 0 4px;
+            opacity: 0.7;
+        }
+        .af-mode-toggle__seg {
+            display: inline-flex;
+            border-radius: 999px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .af-mode-toggle__btn {
+            appearance: none;
+            border: 0;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.75);
+            padding: 4px 8px;
+            font-size: 9px;
+            letter-spacing: 1px;
+            cursor: pointer;
+        }
+        .af-mode-toggle__btn:hover {
+            color: #fff;
+        }
+        .af-mode-toggle__btn.is-active {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
         .af-icon {
             width: 18px;
             height: 18px;
@@ -288,6 +347,15 @@
             <div class="af-nav__link">INFO</div>
         </div>
         <div class="af-nav__right">
+            <div class="af-mode-toggle" id="af-render-toggle">
+                <span class="af-mode-toggle__label">TEST</span>
+                <div class="af-mode-toggle__seg">
+                    <button class="af-mode-toggle__btn" id="af-render-kolam" type="button">Kolam</button>
+                    <button class="af-mode-toggle__btn" id="af-render-halo" type="button">Halo</button>
+                    <button class="af-mode-toggle__btn" id="af-render-layered" type="button">Layered</button>
+                </div>
+            </div>
+            <button class="af-nav__reset hidden" id="af-hall-reset" type="button">Reset</button>
             <svg class="af-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M4 9v6M8 5v14M12 3v18M16 8v8M20 6v12"/>
             </svg>
@@ -312,54 +380,76 @@
         <div id="effect-panel">
             <div class="section-title">COLOR & LIGHT</div>
             <div class="control-group">
-                <div class="control-label">Brightness <span class="control-value" id="val-brightness">1.0</span></div>
-                <input type="range" id="inp-brightness" min="0" max="3" step="0.1" value="1.0">
+                <div class="control-label">Brightness <span class="control-value" id="val-brightness">1.70</span></div>
+                <input type="range" id="inp-brightness" min="0" max="3" step="0.1" value="1.7">
             </div>
             <div class="control-group">
-                <div class="control-label">Contrast <span class="control-value" id="val-contrast">1.0</span></div>
-                <input type="range" id="inp-contrast" min="0" max="3" step="0.1" value="1.0">
+                <div class="control-label">Contrast <span class="control-value" id="val-contrast">1.30</span></div>
+                <input type="range" id="inp-contrast" min="0" max="3" step="0.1" value="1.3">
             </div>
             
             <div class="section-title">PARTICLES</div>
             <div class="control-group">
-                <div class="control-label">Particle Size <span class="control-value" id="val-particleSize">6.0</span></div>
-                <input type="range" id="inp-particleSize" min="1" max="15" step="0.5" value="6.0">
+                <div class="control-label">Particle Size <span class="control-value" id="val-particleSize">11.50</span></div>
+                <input type="range" id="inp-particleSize" min="1" max="15" step="0.5" value="11.5">
             </div>
             <div class="control-group">
-                <div class="control-label">Grid Opacity <span class="control-value" id="val-gridOpacity">0.3</span></div>
-                <input type="range" id="inp-gridOpacity" min="0" max="1" step="0.1" value="0.3">
+                <div class="control-label">Grid Opacity <span class="control-value" id="val-gridOpacity">0.50</span></div>
+                <input type="range" id="inp-gridOpacity" min="0" max="1" step="0.1" value="0.5">
             </div>
             
             <div class="section-title">EROSION & PHYSICS</div>
             <div class="control-group">
-                <div class="control-label">Erosion Speed <span class="control-value" id="val-erosionSpeed">0.2</span></div>
-                <input type="range" id="inp-erosionSpeed" min="0" max="1" step="0.05" value="0.2">
+                <div class="control-label">Erosion Speed <span class="control-value" id="val-erosionSpeed">0.15</span></div>
+                <input type="range" id="inp-erosionSpeed" min="0" max="1" step="0.05" value="0.15">
             </div>
             <div class="control-group">
-                <div class="control-label">Wave Amp <span class="control-value" id="val-waveAmplitude">0.05</span></div>
-                <input type="range" id="inp-waveAmplitude" min="0" max="0.5" step="0.01" value="0.05">
+                <div class="control-label">Wave Amp <span class="control-value" id="val-waveAmplitude">0.17</span></div>
+                <input type="range" id="inp-waveAmplitude" min="0" max="0.5" step="0.01" value="0.17">
             </div>
             <div class="control-group">
-                <div class="control-label">Wave Speed <span class="control-value" id="val-waveSpeed">0.2</span></div>
-                <input type="range" id="inp-waveSpeed" min="0" max="1" step="0.05" value="0.2">
+                <div class="control-label">Wave Speed <span class="control-value" id="val-waveSpeed">0.25</span></div>
+                <input type="range" id="inp-waveSpeed" min="0" max="1" step="0.05" value="0.25">
             </div>
             <div class="control-group">
-                <div class="control-label">Dispersion <span class="control-value" id="val-dispersion">1.0</span></div>
-                <input type="range" id="inp-dispersion" min="0" max="3" step="0.1" value="1.0">
+                <div class="control-label">Dispersion <span class="control-value" id="val-dispersion">0.10</span></div>
+                <input type="range" id="inp-dispersion" min="0" max="3" step="0.1" value="0.1">
             </div>
             <div class="control-group">
-                <div class="control-label">Roughness <span class="control-value" id="val-edgeRoughness">1.0</span></div>
-                <input type="range" id="inp-edgeRoughness" min="0" max="3" step="0.1" value="1.0">
+                <div class="control-label">Roughness <span class="control-value" id="val-edgeRoughness">0.50</span></div>
+                <input type="range" id="inp-edgeRoughness" min="0" max="3" step="0.1" value="0.5">
             </div>
             <div class="control-group">
-                <div class="control-label">Safe Area <span class="control-value" id="val-stableRadius">0.42</span></div>
-                <input type="range" id="inp-stableRadius" min="0.1" max="0.5" step="0.01" value="0.42">
+                <div class="control-label">Safe Area <span class="control-value" id="val-stableRadius">0.44</span></div>
+                <input type="range" id="inp-stableRadius" min="0.1" max="0.5" step="0.01" value="0.44">
             </div>
 
-            <div class="section-title">LAYOUT</div>
+            <div class="section-title">HOME (TEMP)</div>
             <div class="control-group">
-                <div class="control-label">Memory Gap <span class="control-value" id="val-galleryGap">2.2</span></div>
-                <input type="range" id="inp-galleryGap" min="1.5" max="5.0" step="0.1" value="2.2">
+                <div class="control-label">Home Zoom <span class="control-value" id="val-home-zoom">1.80</span></div>
+                <input type="range" id="af-home-zoom" min="0.8" max="6.0" step="0.1" value="1.8">
+            </div>
+            <div class="control-group">
+                <div class="control-label">Home Y Offset <span class="control-value" id="val-home-y">0.05</span></div>
+                <input type="range" id="af-home-y" min="-1.0" max="1.0" step="0.05" value="0.05">
+            </div>
+
+            <div class="section-title">HALL RING (TEMP)</div>
+            <div class="control-group">
+                <div class="control-label">Ring Radius <span class="control-value" id="val-ring-radius">4.00</span></div>
+                <input type="range" id="af-ring-radius" min="1.5" max="4.0" step="0.1" value="4.0">
+            </div>
+            <div class="control-group">
+                <div class="control-label">Depth Strength <span class="control-value" id="val-ring-depth">0.80</span></div>
+                <input type="range" id="af-ring-depth" min="0.8" max="6.0" step="0.1" value="0.8">
+            </div>
+            <div class="control-group">
+                <div class="control-label">Angle Step <span class="control-value" id="val-ring-angle">0.59</span></div>
+                <input type="range" id="af-ring-angle" min="0.18" max="0.6" step="0.01" value="0.59">
+            </div>
+            <div class="control-group">
+                <div class="control-label">Hall FOV <span class="control-value" id="val-hall-fov">40</span></div>
+                <input type="range" id="af-hall-fov" min="28" max="60" step="1" value="40">
             </div>
         </div>
 

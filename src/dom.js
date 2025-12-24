@@ -6,6 +6,12 @@ export function getDom() {
     loading: byId("loading"),
     nav: document.querySelector(".af-nav"),
 
+    renderToggle: byId("af-render-toggle"),
+    renderKolam: byId("af-render-kolam"),
+    renderHalo: byId("af-render-halo"),
+    renderLayered: byId("af-render-layered"),
+    hallResetBtn: byId("af-hall-reset"),
+
     toggleBtn: byId("settings-toggle"),
     effectPanel: byId("effect-panel"),
 
@@ -39,7 +45,12 @@ export function getDom() {
       dispersion: { input: byId("inp-dispersion"), label: byId("val-dispersion") },
       edgeRoughness: { input: byId("inp-edgeRoughness"), label: byId("val-edgeRoughness") },
       stableRadius: { input: byId("inp-stableRadius"), label: byId("val-stableRadius") },
-      galleryGap: { input: byId("inp-galleryGap"), label: byId("val-galleryGap") },
+      ringRadius: { input: byId("af-ring-radius"), label: byId("val-ring-radius") },
+      ringDepth: { input: byId("af-ring-depth"), label: byId("val-ring-depth") },
+      ringAngle: { input: byId("af-ring-angle"), label: byId("val-ring-angle") },
+      hallFov: { input: byId("af-hall-fov"), label: byId("val-hall-fov") },
+      homeZoom: { input: byId("af-home-zoom"), label: byId("val-home-zoom") },
+      homeYOffset: { input: byId("af-home-y"), label: byId("val-home-y") },
     },
   };
 }

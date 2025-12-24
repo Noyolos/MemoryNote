@@ -59,12 +59,15 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 ## 5) Entry Points & Behavior
 - `index.html` defines required elements/IDs: `#canvas-container`, `#fileInput`, `#archiveBtn`, `#enter-hall-btn`, `#back-btn`, `#prev-zone`, `#next-zone`, sliders, etc.
 - Overlay UI includes a top navbar (brand/links/icons) and a bottom-center mic button plus voice overlay (`#af-voice-overlay`, `#af-voice-pill`, `#af-voice-bubble`, `#af-voice-sub`); overlays are UI-only and should not block canvas interactions beyond their bounds. CSS uses `--af-nav-offset` to offset top-aligned controls.
+- Render mode toggle IDs: `#af-render-toggle`, `#af-render-kolam`, `#af-render-halo`, `#af-render-layered`. LocalStorage key `afterglow_render_mode` stores the current mode (`kolam`/`halo`/`layered`).
+- Hall ring tuning sliders (TEMP): `#af-ring-radius`, `#af-ring-depth`, `#af-ring-angle`, `#af-hall-fov` in the settings panel; localStorage keys `afterglow_ring_radius`, `afterglow_ring_depth`, `afterglow_ring_angle`, `afterglow_hall_fov`.
+- Render mode switching updates existing shader uniforms via `App.materialRegistry`; no material or texture allocations on toggle.
 - `src/main.js` creates `App` and starts its loop.
 - `App` (`src/app.js`):
   - Builds Three.js scene, editor particles, shader uniforms.
   - Upload applies processed render texture to the editor; settings sliders update uniforms/layout.
   - Archive clones the current state into `state.memories`, persists to IndexedDB (thumb + render blobs), and lays out gallery (newest-first).
-  - Enter/exit hall toggles visibility; gallery navigation adjusts camera target and loads high-res render lazily for the current memory.
+  - Enter/exit hall toggles visibility; Hall uses a 5-item ring carousel (center ±2) with arc layout/scale/rotation and wrap-around nav; only those 5 are visible; high-res render loads lazily for the selected memory. Hall memory opacity is driven per-offset for a translucent "ghost film" look.
   - Inspect/rotate via OrbitControls on the canvas (mouse/touch drag), damping on; pan/zoom disabled. Wheel still adjusts `viewDistance` and syncs OrbitControls radius.
 
 ---
@@ -105,6 +108,7 @@ After any non-trivial change, run these:
 ## 10) Do-not-touch (hard constraints)
 - Do not change DOM IDs/selectors without updating all references (`index.html`, `src/dom.js`, `src/app.js`, AGENT.md).
 - Do not change shader uniform semantics or material cloning without documenting and updating dependents.
+- Render mode toggles must not allocate new materials or textures; only update uniforms on existing materials via `App.materialRegistry`.
 - Do not swap frameworks/tooling (keep Vite + Three.js) unless explicitly requested.
 - Keep persistence contract (IndexedDB schemaVersion 1, blob separation) unless updated here + in code.
 - Keep OrbitControls inspect behavior rotate-only (no pan/zoom); if changed, document here and update UI expectations.

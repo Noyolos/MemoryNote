@@ -41,19 +41,142 @@ const VOICE_STATES = {
 
 // Keep defaults close to your prototype
 const DEFAULT_SETTINGS = {
-  waveSpeed: 0.2,
-  waveAmplitude: 0.05,
-  edgeRoughness: 1.0,
-  erosionSpeed: 0.2,
-  particleSize: 6.0,
-  dispersion: 1.0,
-  gridOpacity: 0.3,
-  stableRadius: 0.42,
-  brightness: 1.0,
-  contrast: 1.0,
+  waveSpeed: 0.25,
+  waveAmplitude: 0.17,
+  edgeRoughness: 0.5,
+  erosionSpeed: 0.15,
+  particleSize: 11.5,
+  dispersion: 0.1,
+  gridOpacity: 0.5,
+  stableRadius: 0.44,
+  brightness: 1.7,
+  contrast: 1.3,
   viewDistance: 1.8,
   galleryGap: 2.2,
 };
+
+const CAROUSEL = {
+  radius: 4.0,
+  depth: 0.8,
+  angleStep: 0.59,
+  zBase: 0.6,
+  yOffset: -0.1,
+  sideScale: 0.72,
+  faceInStrength: 1.0,
+  edgeFade: 0.75,
+  edgeWidth: 0.38,
+  opacityBase: 0.62,
+  opacityFalloff: 0.45,
+  dimFalloff: 0.18,
+  indexLerp: 0.12,
+  posLerp: 0.14,
+  rotLerp: 0.14,
+  scaleLerp: 0.14,
+  transitionMs: 420,
+};
+
+const RING_KEYS = {
+  radius: "afterglow_ring_radius",
+  depth: "afterglow_ring_depth",
+  angle: "afterglow_ring_angle",
+};
+const HALL_FOV_KEY = "afterglow_hall_fov";
+const HALL_FOV_DEFAULT = 40;
+const HALL_FOV_LIMITS = { min: 28, max: 60 };
+const HALL_OPACITY_KEY = "afterglow_hall_opacity";
+const HALL_OPACITY_LIMITS = { min: 0.2, max: 1.0 };
+
+const RING_DEFAULTS = {
+  radius: CAROUSEL.radius,
+  depth: CAROUSEL.depth,
+  angle: CAROUSEL.angleStep,
+};
+
+const RING_LIMITS = {
+  radius: { min: 1.5, max: 4.0 },
+  depth: { min: 0.8, max: 6.0 },
+  angle: { min: 0.18, max: 0.6 },
+};
+
+const RENDER_MODE_KEY = "afterglow_render_mode";
+const DEFAULT_RENDER_MODE = "kolam";
+const RENDER_MODE_PRESETS = {
+  kolam: { stipple: 0.8, halo: 0.45, grain: 0.4, layered: 0.0, layerDepth: 0.0, layerNoiseDepth: 0.0 },
+  halo: { stipple: 0.15, halo: 0.9, grain: 0.2, layered: 0.0, layerDepth: 0.0, layerNoiseDepth: 0.0 },
+  layered: { stipple: 0.5, halo: 0.85, grain: 0.32, layered: 1.0, layerDepth: 0.08, layerNoiseDepth: 0.05 },
+};
+
+function normalizeRenderMode(mode) {
+  if (mode === "halo" || mode === "layered") return mode;
+  return DEFAULT_RENDER_MODE;
+}
+
+function readRenderMode() {
+  try {
+    return localStorage.getItem(RENDER_MODE_KEY);
+  } catch (err) {
+    return null;
+  }
+}
+
+function writeRenderMode(mode) {
+  try {
+    localStorage.setItem(RENDER_MODE_KEY, mode);
+  } catch (err) {
+    // ignore storage failures (private mode, quota, etc.)
+  }
+}
+
+function hashStringToSeed(value) {
+  const str = String(value ?? "");
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967296;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function wrapIndex(index, count) {
+  if (count <= 0) return 0;
+  return ((index % count) + count) % count;
+}
+
+function getWrappedOffset(index, center, count) {
+  if (count <= 0) return 0;
+  let offset = index - center;
+  const half = count / 2;
+  if (offset > half) offset -= count;
+  if (offset < -half) offset += count;
+  return offset;
+}
+
+function easeInOut(t) {
+  return t * t * (3 - 2 * t);
+}
+
+function readStoredNumber(key, fallback, { min = -Infinity, max = Infinity } = {}) {
+  try {
+    const raw = localStorage.getItem(key);
+    const value = parseFloat(raw);
+    if (!Number.isFinite(value)) return fallback;
+    return clamp(value, min, max);
+  } catch (err) {
+    return fallback;
+  }
+}
+
+function writeStoredNumber(key, value) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch (err) {
+    // ignore storage failures
+  }
+}
 
 function canvasToBlob(canvas, type, quality) {
   return new Promise((resolve) => {
@@ -191,6 +314,24 @@ export class App {
       galleryIndex: 0,
       targetCameraX: 0,
     };
+    this.materialRegistry = new Set();
+    this.renderMode = normalizeRenderMode(readRenderMode());
+    this.ringSettings = {
+      radius: readStoredNumber(RING_KEYS.radius, RING_DEFAULTS.radius, RING_LIMITS.radius),
+      depth: readStoredNumber(RING_KEYS.depth, RING_DEFAULTS.depth, RING_LIMITS.depth),
+      angle: readStoredNumber(RING_KEYS.angle, RING_DEFAULTS.angle, RING_LIMITS.angle),
+    };
+    this.hallFov = readStoredNumber(HALL_FOV_KEY, HALL_FOV_DEFAULT, HALL_FOV_LIMITS);
+    this.hallOpacityBase = readStoredNumber(HALL_OPACITY_KEY, CAROUSEL.opacityBase, HALL_OPACITY_LIMITS);
+    this.homeSettings = {
+      zoom: this.settings.viewDistance,
+      yOffset: 0.05,
+    };
+    this.carousel = {
+      indexTarget: 0,
+      indexFloat: 0,
+    };
+    this.carouselEuler = new THREE.Euler(0, 0, 0);
 
     this.mouseX = 0;
     this.mouseY = 0;
@@ -198,6 +339,7 @@ export class App {
 
     this._initThree();
     this._initUI();
+    this.setRenderMode(this.renderMode, { persist: false });
     this._initEvents();
     this._initStorage();
 
@@ -217,6 +359,11 @@ export class App {
 
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.camera.position.z = this.settings.viewDistance;
+    this.cameraDefaults = {
+      fov: this.camera.fov,
+      near: this.camera.near,
+      far: this.camera.far,
+    };
 
     this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -229,9 +376,12 @@ export class App {
     this.galleryGroup = new THREE.Group();
     this.scene.add(this.editorGroup);
     this.scene.add(this.galleryGroup);
+    this.editorGroup.position.y = this.homeSettings.yOffset;
 
     this.geometry = createParticleGeometry(360);
     this.editorMaterial = createEditorMaterial(this.settings);
+    this._setMaterialSeed(this.editorMaterial, "editor");
+    this._registerMaterial(this.editorMaterial);
     this.editorParticles = new THREE.Points(this.geometry, this.editorMaterial);
     this.editorGroup.add(this.editorParticles);
 
@@ -250,12 +400,42 @@ export class App {
   }
 
   _initUI() {
-    const { toggleBtn, effectPanel, sliders, micButton } = this.dom;
+    const { toggleBtn, effectPanel, sliders, micButton, renderToggle, renderKolam, renderHalo, renderLayered, hallResetBtn } = this.dom;
 
     // Right panel toggle
     toggleBtn?.addEventListener("click", () => {
       effectPanel?.classList.toggle("open");
       toggleBtn?.classList.toggle("active");
+    });
+
+    const stopToggleEvent = (el) => {
+      if (!el) return;
+      ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend", "click"].forEach((type) => {
+        el.addEventListener(type, (e) => e.stopPropagation());
+      });
+    };
+
+    stopToggleEvent(renderToggle);
+    stopToggleEvent(renderKolam);
+    stopToggleEvent(renderHalo);
+    stopToggleEvent(renderLayered);
+    stopToggleEvent(hallResetBtn);
+
+    renderKolam?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.setRenderMode("kolam");
+    });
+    renderHalo?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.setRenderMode("halo");
+    });
+    renderLayered?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.setRenderMode("layered");
+    });
+    hallResetBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._resetHallViewParams();
     });
 
     const bind = (key, uniformKey, { isPixel = false } = {}) => {
@@ -264,18 +444,12 @@ export class App {
 
       s.input.addEventListener("input", (e) => {
         const val = parseFloat(e.target.value);
-        s.label.innerText = isFinite(val) ? val.toFixed(key === "galleryGap" ? 1 : 2) : String(val);
+        s.label.innerText = isFinite(val) ? val.toFixed(2) : String(val);
 
         // update settings
         this.settings[key] = val;
 
         // special-case: layout
-        if (key === "galleryGap") {
-          this._updateGalleryLayout();
-          this._updateGalleryTarget();
-          return;
-        }
-
         // update uniforms (editor + all memories)
         let finalVal = val;
         if (isPixel) finalVal = val * (window.devicePixelRatio || 1);
@@ -293,7 +467,79 @@ export class App {
     bind("dispersion", "uDispersion");
     bind("edgeRoughness", "uEdgeRoughness");
     bind("stableRadius", "uStableRadius");
-    bind("galleryGap", null);
+
+    const bindHome = (sliderKey, handler) => {
+      const s = sliders[sliderKey];
+      if (!s?.input || !s?.label) return;
+      const update = (val) => {
+        s.label.innerText = Number.isFinite(val) ? val.toFixed(2) : String(val);
+        handler(val);
+      };
+      s.input.addEventListener("input", (e) => {
+        const val = parseFloat(e.target.value);
+        update(val);
+      });
+      update(parseFloat(s.input.value));
+    };
+
+    if (sliders.homeZoom?.input) sliders.homeZoom.input.value = this.homeSettings.zoom;
+    if (sliders.homeYOffset?.input) sliders.homeYOffset.input.value = this.homeSettings.yOffset;
+
+    bindHome("homeZoom", (val) => {
+      if (!Number.isFinite(val)) return;
+      this.homeSettings.zoom = val;
+      this.settings.viewDistance = val;
+      this._syncControlDistance(this.settings.viewDistance);
+    });
+    bindHome("homeYOffset", (val) => {
+      if (!Number.isFinite(val)) return;
+      this.homeSettings.yOffset = val;
+      if (this.editorGroup) this.editorGroup.position.y = val;
+    });
+
+    const bindRing = (sliderKey, settingKey, storageKey) => {
+      const s = sliders[sliderKey];
+      if (!s?.input || !s?.label) return;
+      const limits = RING_LIMITS[settingKey] || { min: -Infinity, max: Infinity };
+      const update = (val, persist = true) => {
+        const rawVal = Number.isFinite(val) ? val : this.ringSettings[settingKey];
+        const nextVal = clamp(rawVal, limits.min, limits.max);
+        this.ringSettings[settingKey] = nextVal;
+        s.label.innerText = nextVal.toFixed(2);
+        if (persist) writeStoredNumber(storageKey, nextVal);
+      };
+      s.input.value = this.ringSettings[settingKey];
+      update(this.ringSettings[settingKey], false);
+      s.input.addEventListener("input", (e) => {
+        const val = parseFloat(e.target.value);
+        update(val);
+      });
+    };
+
+    bindRing("ringRadius", "radius", RING_KEYS.radius);
+    bindRing("ringDepth", "depth", RING_KEYS.depth);
+    bindRing("ringAngle", "angle", RING_KEYS.angle);
+
+    const bindHallFov = () => {
+      const s = sliders.hallFov;
+      if (!s?.input || !s?.label) return;
+      const update = (val, persist = true) => {
+        const rawVal = Number.isFinite(val) ? val : this.hallFov;
+        const nextVal = clamp(rawVal, HALL_FOV_LIMITS.min, HALL_FOV_LIMITS.max);
+        this.hallFov = nextVal;
+        s.label.innerText = Math.round(nextVal).toString();
+        if (persist) writeStoredNumber(HALL_FOV_KEY, nextVal);
+        if (this._isInHall()) this._applyHallCamera(true);
+      };
+      s.input.value = this.hallFov;
+      update(this.hallFov, false);
+      s.input.addEventListener("input", (e) => {
+        const val = parseFloat(e.target.value);
+        update(val);
+      });
+    };
+
+    bindHallFov();
 
     this._updateNavOffset();
     window.addEventListener("resize", () => this._updateNavOffset());
@@ -315,9 +561,9 @@ export class App {
       prevZone,
       nextZone,
       loading,
-      memoryCount,
       controlPanel,
       galleryUI,
+      hallResetBtn,
     } = this.dom;
 
     // zoom by wheel
@@ -380,8 +626,6 @@ export class App {
 
     // archive
     archiveBtn?.addEventListener("click", async (e) => {
-      e.stopPropagation();
-
       if (!this.editorMaterial.uniforms.uTexture.value || !this.currentSource?.render?.blob || !this.currentSource?.thumb?.blob) {
         alert("Please upload an image first.");
         return;
@@ -394,14 +638,14 @@ export class App {
         await this.storage.saveMemory(record, { thumbBlob: this.currentSource.thumb.blob, renderBlob: this.currentSource.render.blob });
 
         const material = cloneMaterialFromSettings(this.editorMaterial, this.settings);
+        this._setMaterialSeed(material, id);
+        this._registerMaterial(material);
         const texture = await loadTextureFromBlob(this.currentSource.render.blob, this.textureLoader);
         this._applyTexture(material, texture);
 
         const memoryMesh = new THREE.Points(this.geometry, material);
         this._setMeshScale(memoryMesh, record.dimensions);
         this._addMemory({ id, record, mesh: memoryMesh, hasHighRes: true, renderLoading: false }, { prepend: true });
-
-        if (memoryCount) memoryCount.innerText = `(${this.state.memories.length})`;
 
         const originalText = archiveBtn.innerText;
         archiveBtn.innerText = "SAVED";
@@ -413,8 +657,8 @@ export class App {
     });
 
     // enter hall
-    enterHallBtn?.addEventListener("click", (e) => {
-      e.stopPropagation();
+    enterHallBtn?.addEventListener("click", () => {
+      if (this._isInHall()) return;
       if (this.state.memories.length === 0) {
         alert("Archive is empty.");
         return;
@@ -423,24 +667,30 @@ export class App {
       this.state.mode = "gallery";
       controlPanel?.classList.add("hidden");
       galleryUI?.classList.remove("hidden");
+      hallResetBtn?.classList.remove("hidden");
 
       this.editorGroup.visible = false;
       this.galleryGroup.visible = true;
+      this._applyHallCamera(true);
 
-      this._updateGalleryTarget(true);
+      this.desiredTarget.set(0, 0, 0);
+      this._updateGalleryTarget({ snap: true });
       this._ensureRenderForCurrent();
     });
 
     // back
-    backBtn?.addEventListener("click", (e) => {
-      e.stopPropagation();
+    backBtn?.addEventListener("click", () => {
+      if (!this._isInHall()) return;
       this.state.mode = "editor";
       controlPanel?.classList.remove("hidden");
       galleryUI?.classList.add("hidden");
+      hallResetBtn?.classList.add("hidden");
 
       this.editorGroup.visible = true;
       this.galleryGroup.visible = false;
+      this._applyHallCamera(false);
       this.desiredTarget.set(0, 0, 0);
+      this._syncCarouselToIndex({ snap: true });
       if (this.controls) {
         const offset = this.camera.position.clone().sub(this.controls.target);
         this.controls.target.copy(this.desiredTarget);
@@ -450,15 +700,13 @@ export class App {
     });
 
     // nav
-    prevZone?.addEventListener("click", () => {
-      this.state.galleryIndex -= 1;
-      this._updateGalleryTarget(true);
-      this._ensureRenderForCurrent();
+    prevZone?.addEventListener("click", (e) => {
+      if (!this._isInHall()) return;
+      this._navigateHall(-1);
     });
-    nextZone?.addEventListener("click", () => {
-      this.state.galleryIndex += 1;
-      this._updateGalleryTarget(true);
-      this._ensureRenderForCurrent();
+    nextZone?.addEventListener("click", (e) => {
+      if (!this._isInHall()) return;
+      this._navigateHall(1);
     });
   }
 
@@ -495,8 +743,7 @@ export class App {
     }
 
     this._updateGalleryLayout();
-    if (this.dom.memoryCount) this.dom.memoryCount.innerText = `(${this.state.memories.length})`;
-    if (this.state.memories.length > 0) this._updateGalleryTarget(false);
+    if (this.state.memories.length > 0) this._updateGalleryTarget();
   }
 
   _serializeMemory(id) {
@@ -532,6 +779,8 @@ export class App {
 
     const texture = await loadTextureFromBlob(asset.blob, this.textureLoader);
     const material = cloneMaterialFromSettings(this.editorMaterial, record.settingsSnapshot || this.settings);
+    this._setMaterialSeed(material, record.id);
+    this._registerMaterial(material);
     this._applyTexture(material, texture);
 
     const memoryMesh = new THREE.Points(this.geometry, material);
@@ -559,6 +808,7 @@ export class App {
     this.galleryGroup.add(memory.mesh);
     this._updateGalleryLayout();
     this._updateGalleryTarget();
+    this._updateMemoryCount();
   }
 
   async _ensureRenderForCurrent() {
@@ -625,6 +875,18 @@ export class App {
     this.controls.update();
   }
 
+  _bindControlsDebug(element) {
+    if (!element) return;
+    element.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (!window.__AF_DEBUG_CONTROLS) return;
+        console.log("[Afterglow] controls pointerdown", { target: e.target, currentTarget: e.currentTarget });
+      },
+      { passive: true }
+    );
+  }
+
   _updateNavOffset() {
     const nav = this.dom.nav;
     if (!nav) return;
@@ -651,6 +913,45 @@ export class App {
     if (voiceSubText) voiceSubText.innerText = config.sub;
   }
 
+  _setMaterialSeed(material, id) {
+    if (!material?.uniforms?.uSeed) return;
+    material.uniforms.uSeed.value = hashStringToSeed(id);
+  }
+
+  _registerMaterial(material) {
+    if (!material) return;
+    this.materialRegistry.add(material);
+    this._applyRenderModeToMaterial(material);
+  }
+
+  _applyRenderModeToMaterial(material, preset = RENDER_MODE_PRESETS[this.renderMode]) {
+    if (!material?.uniforms || !preset) return;
+    if (material.uniforms.uStippleStrength) material.uniforms.uStippleStrength.value = preset.stipple;
+    if (material.uniforms.uHaloStrength) material.uniforms.uHaloStrength.value = preset.halo;
+    if (material.uniforms.uGrainStrength) material.uniforms.uGrainStrength.value = preset.grain;
+    if (material.uniforms.uLayeredStrength) material.uniforms.uLayeredStrength.value = preset.layered;
+    if (material.uniforms.uLayerDepth) material.uniforms.uLayerDepth.value = preset.layerDepth ?? 0.0;
+    if (material.uniforms.uLayerNoiseDepth) material.uniforms.uLayerNoiseDepth.value = preset.layerNoiseDepth ?? 0.0;
+  }
+
+  _syncRenderToggle() {
+    const { renderKolam, renderHalo, renderLayered } = this.dom;
+    if (renderKolam) renderKolam.classList.toggle("is-active", this.renderMode === "kolam");
+    if (renderHalo) renderHalo.classList.toggle("is-active", this.renderMode === "halo");
+    if (renderLayered) renderLayered.classList.toggle("is-active", this.renderMode === "layered");
+  }
+
+  setRenderMode(mode, { persist = true, updateUI = true } = {}) {
+    const normalized = normalizeRenderMode(mode);
+    this.renderMode = normalized;
+    const preset = RENDER_MODE_PRESETS[normalized];
+    if (persist) writeRenderMode(normalized);
+    this.materialRegistry.forEach((material) => {
+      this._applyRenderModeToMaterial(material, preset);
+    });
+    if (updateUI) this._syncRenderToggle();
+  }
+
   _updateAllUniforms(key, value) {
     if (!key) return;
     if (this.editorMaterial.uniforms[key]) this.editorMaterial.uniforms[key].value = value;
@@ -661,34 +962,193 @@ export class App {
   }
 
   _updateGalleryLayout() {
+    this._syncCarouselToIndex({ snap: true });
+  }
+
+  _isInHall() {
+    return this.state.mode === "gallery";
+  }
+
+  _updateMemoryCount() {
+    const { memoryCount } = this.dom;
+    if (!memoryCount) return;
+    const count = this.state.memories.length;
+    memoryCount.innerText = `(${count})`;
+  }
+
+  _updateGalleryCounter() {
+    const { galleryCounter } = this.dom;
+    if (!galleryCounter) return;
+    const count = this.state.memories.length;
+    if (count <= 0) return;
+    const index = wrapIndex(this.state.galleryIndex, count) + 1;
+    galleryCounter.innerText = `MEMORY ${String(index).padStart(2, "0")}`;
+  }
+
+  _applyHallCamera(isHall) {
+    if (!this.camera) return;
+    if (isHall) {
+      this.camera.fov = this.hallFov;
+      this.camera.near = 0.01;
+      this.camera.far = 100;
+    } else if (this.cameraDefaults) {
+      this.camera.fov = this.cameraDefaults.fov;
+      this.camera.near = this.cameraDefaults.near;
+      this.camera.far = this.cameraDefaults.far;
+    }
+    this.camera.updateProjectionMatrix();
+  }
+
+  _resetHallViewParams() {
+    this.ringSettings.radius = RING_DEFAULTS.radius;
+    this.ringSettings.depth = RING_DEFAULTS.depth;
+    this.ringSettings.angle = RING_DEFAULTS.angle;
+    this.hallFov = HALL_FOV_DEFAULT;
+    this.hallOpacityBase = CAROUSEL.opacityBase;
+
+    writeStoredNumber(RING_KEYS.radius, this.ringSettings.radius);
+    writeStoredNumber(RING_KEYS.depth, this.ringSettings.depth);
+    writeStoredNumber(RING_KEYS.angle, this.ringSettings.angle);
+    writeStoredNumber(HALL_FOV_KEY, this.hallFov);
+    writeStoredNumber(HALL_OPACITY_KEY, this.hallOpacityBase);
+
+    const sliders = this.dom.sliders || {};
+    if (sliders.ringRadius?.input) sliders.ringRadius.input.value = this.ringSettings.radius;
+    if (sliders.ringRadius?.label) sliders.ringRadius.label.innerText = this.ringSettings.radius.toFixed(2);
+    if (sliders.ringDepth?.input) sliders.ringDepth.input.value = this.ringSettings.depth;
+    if (sliders.ringDepth?.label) sliders.ringDepth.label.innerText = this.ringSettings.depth.toFixed(2);
+    if (sliders.ringAngle?.input) sliders.ringAngle.input.value = this.ringSettings.angle;
+    if (sliders.ringAngle?.label) sliders.ringAngle.label.innerText = this.ringSettings.angle.toFixed(2);
+    if (sliders.hallFov?.input) sliders.hallFov.input.value = this.hallFov;
+    if (sliders.hallFov?.label) sliders.hallFov.label.innerText = Math.round(this.hallFov).toString();
+
+    if (this._isInHall()) this._applyHallCamera(true);
+  }
+
+  _navigateHall(delta) {
+    if (!this._isInHall()) return;
+    const count = this.state.memories.length;
+    if (!count) return;
+    this.state.galleryIndex = wrapIndex(this.state.galleryIndex + delta, count);
+    this._setCarouselTarget(this.state.galleryIndex);
+    this._ensureRenderForCurrent();
+    this._updateGalleryCounter();
+  }
+
+  _setCarouselTarget(targetIndex) {
+    this.carousel.indexTarget = targetIndex;
+  }
+
+  _syncCarouselToIndex({ snap = false } = {}) {
+    const count = this.state.memories.length;
+    if (!count) {
+      this.carousel.indexTarget = 0;
+      this.carousel.indexFloat = 0;
+      return;
+    }
+    this.state.galleryIndex = wrapIndex(this.state.galleryIndex, count);
+    this.carousel.indexTarget = this.state.galleryIndex;
+    if (snap) {
+      this.carousel.indexFloat = this.carousel.indexTarget;
+    }
+  }
+
+  _updateCarouselCenter(count) {
+    if (!count) return 0;
+    const carousel = this.carousel;
+    const target = wrapIndex(carousel.indexTarget, count);
+    const offset = getWrappedOffset(target, carousel.indexFloat, count);
+    if (Math.abs(offset) < 0.001) {
+      carousel.indexFloat = target;
+    } else {
+      carousel.indexFloat += offset * CAROUSEL.indexLerp;
+    }
+    return carousel.indexFloat;
+  }
+
+  _getCarouselScale(absOffset) {
+    const t = Math.min(1, absOffset / 2);
+    return THREE.MathUtils.lerp(1.0, CAROUSEL.sideScale, t);
+  }
+
+  _ensureCarouselCache(memory) {
+    if (!memory.carousel) {
+      memory.carousel = {
+        targetPos: new THREE.Vector3(),
+        targetScale: new THREE.Vector3(1, 1, 1),
+        targetQuat: new THREE.Quaternion(),
+      };
+    }
+    return memory.carousel;
+  }
+
+  _updateCarouselFrame() {
+    const count = this.state.memories.length;
+    if (!count) return;
+    this.state.galleryIndex = wrapIndex(this.state.galleryIndex, count);
+    const center = this._updateCarouselCenter(count);
+    const radius = this.ringSettings.radius;
+    const depth = this.ringSettings.depth;
+    const angleStep = this.ringSettings.angle;
+
     this.state.memories.forEach((mem, index) => {
-      mem.mesh.position.set(index * this.settings.galleryGap, 0, 0);
+      const mesh = mem.mesh;
+      if (!mesh) return;
+      const offset = getWrappedOffset(index, center, count);
+      const visibleOffset = getWrappedOffset(index, this.state.galleryIndex, count);
+      const visible = Math.abs(visibleOffset) <= 2.01;
+      const wasVisible = mesh.visible;
+      mesh.visible = visible;
+      if (!visible) return;
+
+      const absOffset = Math.abs(offset);
+      const angle = offset * angleStep;
+      const targetX = Math.sin(angle) * radius;
+      const targetZ = CAROUSEL.zBase - depth * Math.pow(absOffset, 2.2);
+      const targetY = CAROUSEL.yOffset;
+      const targetScaleVal = Math.exp(-0.28 * absOffset);
+      const targetRotY = -angle * CAROUSEL.faceInStrength;
+
+      const cache = this._ensureCarouselCache(mem);
+      cache.targetPos.set(targetX, targetY, targetZ);
+      cache.targetScale.set(targetScaleVal, targetScaleVal, targetScaleVal);
+      this.carouselEuler.set(0, targetRotY, 0);
+      cache.targetQuat.setFromEuler(this.carouselEuler);
+
+      const uniforms = mesh.material?.uniforms;
+      if (uniforms) {
+        const opacity = clamp(this.hallOpacityBase * Math.exp(-absOffset * CAROUSEL.opacityFalloff), 0.12, 0.9);
+        const dim = clamp(1.0 - CAROUSEL.dimFalloff * absOffset, 0.4, 1.0);
+        if (uniforms.uOpacity) uniforms.uOpacity.value = opacity;
+        if (uniforms.uDim) uniforms.uDim.value = dim;
+        if (uniforms.uEdgeFade) uniforms.uEdgeFade.value = CAROUSEL.edgeFade;
+        if (uniforms.uEdgeWidth) uniforms.uEdgeWidth.value = CAROUSEL.edgeWidth;
+      }
+      mesh.renderOrder = 10 - Math.round(absOffset * 2);
+
+      if (!wasVisible) {
+        mesh.position.copy(cache.targetPos);
+        mesh.scale.copy(cache.targetScale);
+        mesh.quaternion.copy(cache.targetQuat);
+        return;
+      }
+
+      mesh.position.lerp(cache.targetPos, CAROUSEL.posLerp);
+      mesh.scale.lerp(cache.targetScale, CAROUSEL.scaleLerp);
+      mesh.quaternion.slerp(cache.targetQuat, CAROUSEL.rotLerp);
     });
   }
 
-  _updateGalleryTarget(preserveOffset = false) {
-    const { galleryCounter } = this.dom;
-
-    if (this.state.galleryIndex < 0) this.state.galleryIndex = 0;
-    if (this.state.galleryIndex >= this.state.memories.length) {
-      this.state.galleryIndex = Math.max(0, this.state.memories.length - 1);
+  _updateGalleryTarget({ snap = false } = {}) {
+    const count = this.state.memories.length;
+    if (count > 0) {
+      this.state.galleryIndex = wrapIndex(this.state.galleryIndex, count);
+    } else {
+      this.state.galleryIndex = 0;
     }
-
-    this.state.targetCameraX = this.state.galleryIndex * this.settings.galleryGap;
-    this.desiredTarget.x = this.state.targetCameraX;
-    this.desiredTarget.y = 0;
-    this.desiredTarget.z = 0;
-
-    if (preserveOffset && this.controls) {
-      const offset = this.camera.position.clone().sub(this.controls.target);
-      this.controls.target.copy(this.desiredTarget);
-      this.camera.position.copy(this.desiredTarget).add(offset);
-      this.controls.update();
-    }
-
-    if (galleryCounter) {
-      galleryCounter.innerText = `MEMORY ${String(this.state.galleryIndex + 1).padStart(2, "0")}`;
-    }
+    this.desiredTarget.set(0, 0, 0);
+    this._syncCarouselToIndex({ snap });
+    this._updateGalleryCounter();
   }
 
   _animate = () => {
@@ -700,17 +1160,14 @@ export class App {
     // memories animation
     this.state.memories.forEach((mem, i) => {
       mem.mesh.material.uniforms.uTime.value = time + i * 10;
-      if (this.state.mode === "gallery") {
-        const distToCam = mem.mesh.position.x - this.camera.position.x;
-        const targetZ = Math.abs(distToCam) < 1.0 ? 0 : -0.5;
-        mem.mesh.position.z += (targetZ - mem.mesh.position.z) * 0.05;
-        mem.mesh.rotation.y += (0 - mem.mesh.rotation.y) * 0.05;
-      }
     });
 
     if (this.state.mode === "editor") {
       this.editorParticles.rotation.y = Math.sin(time * 0.1) * 0.03 + this.mouseX * 0.05;
       this.editorParticles.rotation.x = Math.cos(time * 0.08) * 0.03 + this.mouseY * 0.05;
+    }
+    if (this._isInHall()) {
+      this._updateCarouselFrame();
     }
 
     // smooth target for controls based on desired target

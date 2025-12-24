@@ -22,11 +22,25 @@ export function createEditorMaterial(settings) {
 
       uBrightness: { value: settings.brightness },
       uContrast: { value: settings.contrast },
+
+      uStippleStrength: { value: 0.7 },
+      uHaloStrength: { value: 0.2 },
+      uGrainStrength: { value: 0.25 },
+      uLayeredStrength: { value: 0.0 },
+      uLayerDepth: { value: 0.0 },
+      uLayerNoiseDepth: { value: 0.0 },
+      uSeed: { value: 0.0 },
+      uOpacity: { value: 1.0 },
+      uEdgeFade: { value: 0.75 },
+      uEdgeWidth: { value: 0.38 },
+      uDim: { value: 1.0 },
     },
     vertexShader,
     fragmentShader,
     transparent: true,
     depthWrite: false,
+    depthTest: true,
+    premultipliedAlpha: true,
     blending: THREE.NormalBlending,
   });
 }
@@ -41,6 +55,8 @@ export function cloneMaterialFromSettings(baseMaterial, settings) {
     fragmentShader: baseMaterial.fragmentShader,
     transparent: baseMaterial.transparent,
     depthWrite: baseMaterial.depthWrite,
+    depthTest: baseMaterial.depthTest,
+    premultipliedAlpha: baseMaterial.premultipliedAlpha,
     blending: baseMaterial.blending,
     uniforms: THREE.UniformsUtils.clone(baseMaterial.uniforms),
   });

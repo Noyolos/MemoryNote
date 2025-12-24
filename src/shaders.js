@@ -1,17 +1,23 @@
 export const vertexShader = `
-uniform float uTime; 
-uniform float uSize; 
-uniform float uWaveSpeed;
-uniform float uWaveAmplitude; 
-uniform float uDispersion;
-uniform float uEdgeRoughness; 
-uniform float uErosionSpeed; 
-uniform float uStableRadius; 
+precision highp float;
+uniform highp float uTime; 
+uniform highp float uSize; 
+uniform highp float uWaveSpeed;
+uniform highp float uWaveAmplitude; 
+uniform highp float uDispersion;
+uniform highp float uEdgeRoughness; 
+uniform highp float uErosionSpeed; 
+uniform highp float uStableRadius; 
+uniform highp float uLayeredStrength;
+uniform highp float uLayerDepth;
+uniform highp float uLayerNoiseDepth;
+uniform highp float uSeed;
 
 attribute float aRandom;
 varying vec2 vUv; 
 varying float vVisible; 
 varying float vDist;
+varying float vRandom;
 
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -41,6 +47,7 @@ float fbm(vec2 st) {
 
 void main() {
     vUv = uv; 
+    vRandom = aRandom;
     vec3 pos = position; 
     vec2 centeredUv = abs(uv - 0.5);
     float shapeDist = length(centeredUv); 
@@ -55,6 +62,11 @@ void main() {
     float waveVal = sin(pos.x * 3.0 + uTime * uWaveSpeed) * cos(pos.y * 3.0 + uTime * uWaveSpeed);
     float waveNoise = snoise(uv * 4.0 + uTime * 0.2) * 0.2;
     pos.z += (waveVal + waveNoise) * uWaveAmplitude;
+
+    float layerLuma = 0.5 + 0.5 * fbm(uv * 2.5 + vec2(uSeed * 7.1, uSeed * 3.3));
+    float layerNoise = snoise(uv * 6.0 + vec2(aRandom * 2.0, uSeed * 5.0));
+    float layerDepth = (layerLuma - 0.5) * uLayerDepth + layerNoise * uLayerNoiseDepth;
+    pos.z += layerDepth * uLayeredStrength;
 
     float dispersionFactor = smoothstep(uStableRadius, uStableRadius + 0.15, distortedDist);
     if (distortedDist > uStableRadius) {
@@ -83,16 +95,34 @@ void main() {
 `;
 
 export const fragmentShader = `
+precision mediump float;
 uniform sampler2D uTexture; 
-uniform float uHasTexture; 
-uniform float uPixelRatio; 
-uniform float uGridOpacity;
-uniform float uBrightness;
-uniform float uContrast;
+uniform highp float uHasTexture; 
+uniform highp float uPixelRatio; 
+uniform highp float uGridOpacity;
+uniform highp float uBrightness;
+uniform highp float uContrast;
+uniform highp float uTime;
+uniform highp float uStippleStrength;
+uniform highp float uHaloStrength;
+uniform highp float uGrainStrength;
+uniform highp float uLayeredStrength;
+uniform highp float uSeed;
+uniform highp float uOpacity;
+uniform highp float uEdgeFade;
+uniform highp float uEdgeWidth;
+uniform highp float uDim;
 
 varying vec2 vUv; 
 varying float vVisible; 
 varying float vDist;
+varying float vRandom;
+
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
 
 void main() {
     if (vVisible < 0.5) discard;
@@ -102,13 +132,14 @@ void main() {
     if (mod(gl_FragCoord.x, 2.0) < 1.0 && mod(gl_FragCoord.y, 2.0) < 1.0) defaultColor += 0.05;
     vec4 finalColor = mix(defaultColor, texColor, uHasTexture);
 
-    float gridSpacing = 3.0 * uPixelRatio; 
+    float gridSpacing = 3.0 * uPixelRatio;
     float gridThickness = 1.0 * uPixelRatio;
-    bool onGridLineX = mod(gl_FragCoord.x, gridSpacing) < gridThickness;
-    bool onGridLineY = mod(gl_FragCoord.y, gridSpacing) < gridThickness;
-    if (onGridLineX || onGridLineY) {
-        finalColor.rgb *= (1.0 - uGridOpacity); 
-    }
+    float modX = mod(gl_FragCoord.x, gridSpacing);
+    float modY = mod(gl_FragCoord.y, gridSpacing);
+    float onGridLineX = 1.0 - step(gridThickness, modX);
+    float onGridLineY = 1.0 - step(gridThickness, modY);
+    float gridMask = min(1.0, onGridLineX + onGridLineY);
+    finalColor.rgb *= mix(1.0, 1.0 - uGridOpacity, gridMask);
 
     vec3 finalRgb = finalColor.rgb;
     if (uContrast != 1.0) {
@@ -116,12 +147,64 @@ void main() {
     }
     finalRgb *= uBrightness;
 
-    float alpha = 1.0;
-    if(vDist > 0.42) {
-        alpha = 1.0 - smoothstep(0.42, 0.5, vDist);
-        alpha = floor(alpha * 4.0) / 4.0; 
-    }
+    float stippleNoise = hash12(vUv * 180.0 + vec2(vRandom + uSeed, uSeed - vRandom));
+    float grainNoise = hash12(vUv * 420.0 + vec2(uSeed, vRandom * 2.1));
+    float stippleMask = mix(1.0, smoothstep(0.25, 0.85, stippleNoise), uStippleStrength);
+    float grainMask = mix(1.0, 0.85 + 0.3 * grainNoise, uGrainStrength);
 
-    gl_FragColor = vec4(finalRgb, finalColor.a * alpha);
+    finalRgb *= grainMask;
+    finalRgb *= uDim;
+
+    float edgeStart = clamp(0.5 - uEdgeWidth, 0.0, 0.5);
+    float edgeFadeMask = smoothstep(edgeStart, 0.5, vDist);
+    float edgeFade = edgeFadeMask * uEdgeFade;
+    float alpha = uOpacity * (1.0 - edgeFade) * stippleMask;
+    alpha *= finalColor.a;
+
+    float bandNoise = hash12(vUv * 90.0 + vec2(uSeed + vRandom, uSeed - vRandom));
+    float bandSteps = 3.0;
+    float band = floor(bandNoise * bandSteps) / (bandSteps - 1.0);
+    float bandMask = smoothstep(0.2, 0.8, band);
+    float bandBlend = mix(1.0, 0.9 + 0.1 * bandMask, uLayeredStrength);
+    finalRgb *= bandBlend;
+    alpha *= bandBlend;
+
+    float coreMask = 1.0 - smoothstep(0.3, 0.44, vDist);
+    float coreDepth = mix(1.0, 0.82 + 0.18 * grainNoise, coreMask * uLayeredStrength);
+    finalRgb *= coreDepth;
+
+    vec2 blurStep = vec2(0.0025, 0.0025);
+    vec2 edgeSeed = vec2(vRandom + uSeed, uSeed - vRandom);
+    float edgeNoise0 = hash12(vUv * 160.0 + edgeSeed);
+    float edgeNoise1 = hash12((vUv + vec2(blurStep.x, 0.0)) * 160.0 + edgeSeed);
+    float edgeNoise2 = hash12((vUv - vec2(blurStep.x, 0.0)) * 160.0 + edgeSeed);
+    float edgeNoise3 = hash12((vUv + vec2(0.0, blurStep.y)) * 160.0 + edgeSeed);
+    float edgeNoise4 = hash12((vUv - vec2(0.0, blurStep.y)) * 160.0 + edgeSeed);
+    float edgeNoiseBlur = (edgeNoise1 + edgeNoise2 + edgeNoise3 + edgeNoise4) * 0.25;
+    edgeNoiseBlur = mix(edgeNoise0, edgeNoiseBlur, 0.6);
+    float edgeBandInner = smoothstep(0.34, 0.43, vDist);
+    float edgeBandOuter = 1.0 - smoothstep(0.46, 0.56, vDist);
+    float edgeBand = edgeBandInner * edgeBandOuter;
+    float edgeBreak = smoothstep(0.25, 0.8, edgeNoiseBlur);
+    float edgeBandMask = edgeBand * edgeBreak;
+    float edgeBlend = edgeBandMask * uLayeredStrength;
+    finalRgb *= mix(1.0, 0.78 + 0.22 * edgeNoiseBlur, edgeBlend);
+    alpha *= mix(1.0, 0.85, edgeBlend);
+
+    float haloInner = smoothstep(0.32, 0.42, vDist);
+    float haloOuter = 1.0 - smoothstep(0.44, 0.55, vDist);
+    float halo = haloInner * haloOuter;
+    float drift = uTime * 0.05;
+    vec2 haloDrift = vec2(cos(drift), sin(drift)) * 0.002;
+    float dustNoise = hash12((vUv + haloDrift) * 240.0 + vec2(uSeed, vRandom));
+    float dustMask = mix(1.0, 0.6 + 0.4 * dustNoise, uLayeredStrength);
+    float haloMask = halo * dustMask;
+    vec3 haloTint = vec3(0.75, 0.85, 1.0);
+    vec3 haloBoost = min(finalRgb + haloTint * 0.35, vec3(1.0));
+    finalRgb = mix(finalRgb, haloBoost, haloMask * uHaloStrength);
+    alpha = min(1.0, alpha + haloMask * uHaloStrength * 0.35);
+
+    finalRgb *= alpha;
+    gl_FragColor = vec4(finalRgb, alpha);
 }
 `;
