@@ -26,8 +26,8 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 ### Repo reality (today)
 - Vite + Three.js interactive particle memory viewer.
 - User uploads an image; it becomes the particle texture.
-- Archived memories persist locally via IndexedDB (thumb + render blobs with lazy hi-res load); hall navigation works across refresh.
-- UI overlays include a black void background, top navbar, and a mic placeholder button. Inspect/rotate uses OrbitControls (rotate only, no pan/zoom).
+- Saved memories persist locally via IndexedDB (thumb + render blobs with lazy hi-res load); hall navigation works across refresh.
+- UI overlays include a black void background, top navbar, Home HUD (agent pill + voice controls + live reply), and INFO panel. Inspect/rotate uses OrbitControls (rotate only, no pan/zoom).
 - No AI chat/summarization yet.
 
 ---
@@ -44,9 +44,9 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 
 ---
 ## 4) Repo Map
-- `index.html` — static shell, DOM IDs, loads `/src/main.js`; includes top navbar overlay and bottom mic placeholder UI (UI-only).
+- `index.html` — static shell, DOM IDs, loads `/src/main.js`; includes top navbar overlay, Home HUD (agent pill + voice controls + live reply), and INFO panel.
 - `src/main.js` — boots the app by instantiating `App`.
-- `src/app.js` — scene setup, render loop, UI bindings (upload, archive, hall navigation), persistence wiring, OrbitControls inspect.
+- `src/app.js` — scene setup, render loop, UI bindings (upload, save, hall navigation), persistence wiring, OrbitControls inspect.
 - `src/dom.js` — DOM queries for controls.
 - `src/material.js` — ShaderMaterial factory + clone helper for per-memory uniforms.
 - `src/shaders.js` — vertex/fragment shaders for deformation/erosion/dispersion/grid overlay.
@@ -57,16 +57,18 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 
 ---
 ## 5) Entry Points & Behavior
-- `index.html` defines required elements/IDs: `#canvas-container`, `#fileInput`, `#archiveBtn`, `#enter-hall-btn`, `#back-btn`, `#prev-zone`, `#next-zone`, sliders, etc.
-- Overlay UI includes a top navbar (brand/links/icons) and a bottom-center mic button plus voice overlay (`#af-voice-overlay`, `#af-voice-pill`, `#af-voice-bubble`, `#af-voice-sub`); overlays are UI-only and should not block canvas interactions beyond their bounds. CSS uses `--af-nav-offset` to offset top-aligned controls.
+- `index.html` defines required elements/IDs: `#canvas-container`, `#fileInput`, `#enter-hall-btn`, `#back-btn`, `#prev-zone`, `#next-zone`, sliders, etc.
+- Overlay UI includes a top navbar (brand/links/icons), Home-only HUD (`#af-hud`, `#af-agent-pill`, `#af-home-voice`, `#af-home-prompt`, `#af-live-reply`, `#af-mic-btn`, `#af-voice-timer`, `#af-save-memory`, `#af-close-voice`), INFO panel (`#af-info-panel`, `#af-info-close`, `#af-info-memno`, `#af-info-empty`, `#af-info-diary`), landing gate (`#af-landing`, `#af-landing-upload`), and save blocker (`#af-save-blocker`, `#af-blocker-text`). All app UI is wrapped in `#af-app-shell`. INFO opens via `[data-action="open-info"]`. Page visibility is controlled by body classes (`mode-landing`, `mode-home`, `mode-gallery`): landing hides the app shell, home/gallery show it. `body.is-blocked` disables all app-shell pointer events while the blocker is visible. `#af-hud` keeps `pointer-events:none` while interactive elements use `pointer-events:auto`. CSS uses `--af-nav-offset` to offset top-aligned controls.
+- INFO panel content is memory-specific: it reads `diaryCard`/`transcript` from the selected memory (`state.memories[galleryIndex].id`), while the "MEM 01" label is display-only (`index + 1`).
 - Render mode toggle IDs: `#af-render-toggle`, `#af-render-kolam`, `#af-render-halo`, `#af-render-layered`. LocalStorage key `afterglow_render_mode` stores the current mode (`kolam`/`halo`/`layered`).
 - Hall ring tuning sliders (TEMP): `#af-ring-radius`, `#af-ring-depth`, `#af-ring-angle`, `#af-hall-fov` in the settings panel; localStorage keys `afterglow_ring_radius`, `afterglow_ring_depth`, `afterglow_ring_angle`, `afterglow_hall_fov`.
+- Landing gate localStorage key: `afterglow_has_uploaded_once` (first upload unlocks home if no memories exist).
 - Render mode switching updates existing shader uniforms via `App.materialRegistry`; no material or texture allocations on toggle.
 - `src/main.js` creates `App` and starts its loop.
 - `App` (`src/app.js`):
   - Builds Three.js scene, editor particles, shader uniforms.
-  - Upload applies processed render texture to the editor; settings sliders update uniforms/layout.
-  - Archive clones the current state into `state.memories`, persists to IndexedDB (thumb + render blobs), and lays out gallery (newest-first).
+  - Upload applies processed render texture to the editor and runs a mock image analysis; Home shows a single opening assistant line in `#af-live-reply`.
+  - Save Memory generates a diary card first, then persists a single memory record (thumb + render blobs + transcript + diaryCard) and lays out gallery (newest-first).
   - Enter/exit hall toggles visibility; Hall uses a 5-item ring carousel (center ±2) with arc layout/scale/rotation and wrap-around nav; only those 5 are visible; high-res render loads lazily for the selected memory. Hall memory opacity is driven per-offset for a translucent "ghost film" look.
   - Inspect/rotate via OrbitControls on the canvas (mouse/touch drag), damping on; pan/zoom disabled. Wheel still adjusts `viewDistance` and syncs OrbitControls radius.
 
@@ -78,8 +80,8 @@ After any non-trivial change, run these:
 2) Upload: choose JPG/PNG → particles update to the image; no crashes.
 3) Controls: move sliders → visual response is immediate; no console spam.
 4) Inspect drag: drag on canvas (mouse or one-finger touch) → camera orbits smoothly with damping; UI overlays remain clickable.
-5) Archive + Hall: archive a memory, enter hall, navigate prev/next → archived items render and animate independently.
-6) Refresh persistence: archive 3 memories, refresh → all 3 remain in hall/gallery; navigation works; no fatal errors.
+5) Save Memory + Hall: save a memory, enter hall, navigate prev/next → saved items render and animate independently.
+6) Refresh persistence: save 3 memories, refresh → all 3 remain in hall/gallery; navigation works; no fatal errors.
 7) Lazy hi-res: after entering hall, navigating to a memory upgrades its texture to the render blob without freezing UI.
 
 ---
@@ -87,7 +89,7 @@ After any non-trivial change, run these:
 - Persistence: IndexedDB (DB `memory-particles`, version 1). Memories store metadata + blob keys; assets stored as blobs (thumb <=512px, render <=1536px). schemaVersion = 1.
 - Restore flow: loads metadata, then thumb blobs for initial gallery; render blobs load lazily when a memory becomes active.
 - Corrupted/missing assets are skipped with warnings; app continues.
-- UI overlays: black background, top navbar, mic placeholder; inspect rotation via OrbitControls (rotate only, no pan/zoom).
+- UI overlays: black background, top navbar, Home HUD (agent pill + voice controls + live reply), INFO panel; inspect rotation via OrbitControls (rotate only, no pan/zoom).
 - No automated tests or CI.
 
 ---
@@ -95,7 +97,8 @@ After any non-trivial change, run these:
 - DB name/version: `memory-particles` v1.
 - Stores: `memories` (keyPath `id`, index `createdAt`), `assets` (keyPath `key`).
 - Keys: memory `id` uses `crypto.randomUUID()` fallback; asset keys: `${id}:thumb`, `${id}:render`.
-- Memory record: `{ id, createdAt, schemaVersion: 1, assets: { thumbKey, renderKey }, settingsSnapshot, dimensions }`.
+- Memory record: `{ id, createdAt, schemaVersion: 1, assets: { thumbKey, renderKey }, settingsSnapshot, dimensions, diaryCard, transcript }`.
+- Diary card: `{ title, summary, mood, tags, dateISO }` stored per memory (keyed by memory id, not UI index).
 - Assets: blobs stored separately with MIME; no base64/data URLs in JSON; never persist Three.js objects.
 
 ---

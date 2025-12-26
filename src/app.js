@@ -21,23 +21,6 @@ const IMAGE_QUALITY = {
   renderJpeg: 0.85,
 };
 
-const VOICE_STATES = {
-  idle: {
-    pill: "Gemini — Idle",
-    bubble: "Tap the mic to start listening.",
-    sub: "Idle",
-  },
-  listening: {
-    pill: "Gemini — Listening",
-    bubble: "I'm listening. Describe this memory or feeling.",
-    sub: "Listening...",
-  },
-  thinking: {
-    pill: "Gemini — Thinking",
-    bubble: "Let me reflect on that. I'll summarize shortly.",
-    sub: "Thinking...",
-  },
-};
 
 // Keep defaults close to your prototype
 const DEFAULT_SETTINGS = {
@@ -99,6 +82,7 @@ const RING_LIMITS = {
 };
 
 const RENDER_MODE_KEY = "afterglow_render_mode";
+const HAS_UPLOADED_KEY = "afterglow_has_uploaded_once";
 const DEFAULT_RENDER_MODE = "kolam";
 const RENDER_MODE_PRESETS = {
   kolam: { stipple: 0.8, halo: 0.45, grain: 0.4, layered: 0.0, layerDepth: 0.0, layerNoiseDepth: 0.0 },
@@ -116,6 +100,22 @@ function readRenderMode() {
     return localStorage.getItem(RENDER_MODE_KEY);
   } catch (err) {
     return null;
+  }
+}
+
+function readHasUploadedFlag() {
+  try {
+    return localStorage.getItem(HAS_UPLOADED_KEY) === "1";
+  } catch (err) {
+    return false;
+  }
+}
+
+function writeHasUploadedFlag() {
+  try {
+    localStorage.setItem(HAS_UPLOADED_KEY, "1");
+  } catch (err) {
+    // ignore storage failures (private mode, quota, etc.)
   }
 }
 
@@ -305,11 +305,35 @@ export class App {
     this.storage = new WebStorageProvider();
     this.textureLoader = new THREE.TextureLoader();
     this.desiredTarget = new THREE.Vector3(0, 0, 0);
-    this.voiceState = "idle";
+    this.voiceTimerSeconds = 0;
+    this.voiceTimerInterval = null;
+    this.voiceTimerRunning = false;
+    this._homeUiVisible = null;
+    this.liveReplyText = "";
+    this.infoOpen = false;
+    this.mockStreamInterval = null;
+    this.mockDiaryTimer = null;
+    this.mockDiaryResolve = null;
+    this.saveInFlight = false;
+    this.hasUploadedOnce = readHasUploadedFlag();
+    this.blockerActive = false;
+    this.sessionImage = null;
+    this.imageAnalysis = "";
+    this.messages = [];
+    this._hudDirty = true;
+    this._hudCache = {
+      micDisabled: null,
+      saveDisabled: null,
+      closeDisabled: null,
+      promptVisible: null,
+      liveReplyVisible: null,
+      liveReplyText: null,
+      timerLabel: null,
+    };
 
     this.settings = { ...DEFAULT_SETTINGS };
     this.state = {
-      mode: "editor",
+      mode: "home",
       memories: [],
       galleryIndex: 0,
       targetCameraX: 0,
@@ -400,7 +424,24 @@ export class App {
   }
 
   _initUI() {
-    const { toggleBtn, effectPanel, sliders, micButton, renderToggle, renderKolam, renderHalo, renderLayered, hallResetBtn } = this.dom;
+    const {
+      toggleBtn,
+      effectPanel,
+      sliders,
+      micBtn,
+      voiceTimer,
+      saveMemoryBtn,
+      closeVoiceBtn,
+      landingUploadBtn,
+      navInfo,
+      infoClose,
+      renderToggle,
+      renderKolam,
+      renderHalo,
+      renderLayered,
+      hallResetBtn,
+      enterHallBtn,
+    } = this.dom;
 
     // Right panel toggle
     toggleBtn?.addEventListener("click", () => {
@@ -544,26 +585,42 @@ export class App {
     this._updateNavOffset();
     window.addEventListener("resize", () => this._updateNavOffset());
 
-    micButton?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this._nextVoiceState();
+    if (voiceTimer) this._updateVoiceTimerLabel();
+
+    landingUploadBtn?.addEventListener("click", () => {
+      this._openFilePicker();
+    });
+    micBtn?.addEventListener("click", () => {
+      this._toggleVoiceTimer();
+    });
+    saveMemoryBtn?.addEventListener("click", () => {
+      this._handleSaveMemory();
+    });
+    closeVoiceBtn?.addEventListener("click", () => {
+      this._stopVoiceTimer();
+    });
+    navInfo?.addEventListener("click", () => {
+      if (this.saveInFlight) return;
+      this._setInfoOpen(true);
+    });
+    infoClose?.addEventListener("click", () => {
+      this._setInfoOpen(false);
     });
 
-    this._setVoiceState("idle");
+    if (enterHallBtn) {
+      enterHallBtn.style.display = "none";
+      enterHallBtn.style.pointerEvents = "none";
+    }
+
+    this._syncHomeVoiceUI();
   }
 
   _initEvents() {
     const {
       fileInput,
-      archiveBtn,
-      enterHallBtn,
       backBtn,
       prevZone,
       nextZone,
-      loading,
-      controlPanel,
-      galleryUI,
-      hallResetBtn,
     } = this.dom;
 
     // zoom by wheel
@@ -571,6 +628,7 @@ export class App {
       "wheel",
       (e) => {
         e.preventDefault();
+        if (this.saveInFlight || this.blockerActive) return;
         const delta = e.deltaY * 0.0025;
         this.settings.viewDistance += delta;
         this.settings.viewDistance = Math.max(0.5, Math.min(this.settings.viewDistance, 8.0));
@@ -581,6 +639,7 @@ export class App {
 
     // mouse
     document.addEventListener("mousemove", (e) => {
+      if (this.saveInFlight || this.blockerActive) return;
       this.mouseX = (e.clientX - window.innerWidth / 2) * 0.0005;
       this.mouseY = (e.clientY - window.innerHeight / 2) * 0.0005;
     });
@@ -603,88 +662,14 @@ export class App {
     fileInput?.addEventListener("change", async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
-
-      loading.style.opacity = 1;
-      try {
-        const processed = await preprocessImage(file);
-        this.currentSource = {
-          thumb: processed.thumb,
-          render: processed.render,
-          dimensions: { width: processed.render.width, height: processed.render.height },
-        };
-
-        const texture = await loadTextureFromBlob(processed.render.blob, this.textureLoader);
-        this._applyTexture(this.editorMaterial, texture);
-        this._setMeshScale(this.editorParticles, processed.render);
-      } catch (err) {
-        console.warn("Failed to process upload", err);
-        alert("Could not process image. Please try a different file.");
-      } finally {
-        loading.style.opacity = 0;
-      }
-    });
-
-    // archive
-    archiveBtn?.addEventListener("click", async (e) => {
-      if (!this.editorMaterial.uniforms.uTexture.value || !this.currentSource?.render?.blob || !this.currentSource?.thumb?.blob) {
-        alert("Please upload an image first.");
-        return;
-      }
-
-      const id = createMemoryId();
-      const record = this._serializeMemory(id);
-
-      try {
-        await this.storage.saveMemory(record, { thumbBlob: this.currentSource.thumb.blob, renderBlob: this.currentSource.render.blob });
-
-        const material = cloneMaterialFromSettings(this.editorMaterial, this.settings);
-        this._setMaterialSeed(material, id);
-        this._registerMaterial(material);
-        const texture = await loadTextureFromBlob(this.currentSource.render.blob, this.textureLoader);
-        this._applyTexture(material, texture);
-
-        const memoryMesh = new THREE.Points(this.geometry, material);
-        this._setMeshScale(memoryMesh, record.dimensions);
-        this._addMemory({ id, record, mesh: memoryMesh, hasHighRes: true, renderLoading: false }, { prepend: true });
-
-        const originalText = archiveBtn.innerText;
-        archiveBtn.innerText = "SAVED";
-        setTimeout(() => (archiveBtn.innerText = originalText), 800);
-      } catch (err) {
-        console.warn("Failed to save memory", err);
-        alert("Could not save memory. Please try again.");
-      }
-    });
-
-    // enter hall
-    enterHallBtn?.addEventListener("click", () => {
-      if (this._isInHall()) return;
-      if (this.state.memories.length === 0) {
-        alert("Archive is empty.");
-        return;
-      }
-
-      this.state.mode = "gallery";
-      controlPanel?.classList.add("hidden");
-      galleryUI?.classList.remove("hidden");
-      hallResetBtn?.classList.remove("hidden");
-
-      this.editorGroup.visible = false;
-      this.galleryGroup.visible = true;
-      this._applyHallCamera(true);
-
-      this.desiredTarget.set(0, 0, 0);
-      this._updateGalleryTarget({ snap: true });
-      this._ensureRenderForCurrent();
+      if (fileInput) fileInput.value = "";
+      await this._handleImageFile(file);
     });
 
     // back
     backBtn?.addEventListener("click", () => {
       if (!this._isInHall()) return;
-      this.state.mode = "editor";
-      controlPanel?.classList.remove("hidden");
-      galleryUI?.classList.add("hidden");
-      hallResetBtn?.classList.add("hidden");
+      this._setMode("home");
 
       this.editorGroup.visible = true;
       this.galleryGroup.visible = false;
@@ -710,12 +695,108 @@ export class App {
     });
   }
 
+  _openFilePicker() {
+    if (this.saveInFlight || this.blockerActive) return;
+    const { fileInput } = this.dom;
+    if (!fileInput) return;
+    fileInput.value = "";
+    fileInput.click();
+  }
+
+  async _handleImageFile(file) {
+    const { loading } = this.dom;
+    if (!file) return;
+    if (this.saveInFlight || this.blockerActive) return;
+    this._setSaveBlockerVisible(true, "Analyzing image…");
+    const analysisPromise = this._simulateImageAnalysis();
+    if (loading) loading.style.opacity = 1;
+    try {
+      const processed = await preprocessImage(file);
+      this.currentSource = {
+        thumb: processed.thumb,
+        render: processed.render,
+        dimensions: { width: processed.render.width, height: processed.render.height },
+      };
+      this.sessionImage = this.currentSource;
+
+      const texture = await loadTextureFromBlob(processed.render.blob, this.textureLoader);
+      this._applyTexture(this.editorMaterial, texture);
+      this._setMeshScale(this.editorParticles, processed.render);
+      this._resetHomeDraftState({ resetMessages: true });
+
+      const analysis = await analysisPromise;
+      this.imageAnalysis = analysis;
+      this._setOpeningLineFromAnalysis(analysis);
+
+      if (!this.hasUploadedOnce) {
+        this.hasUploadedOnce = true;
+        writeHasUploadedFlag();
+      }
+
+      this._setMode("home");
+    } catch (err) {
+      console.warn("Failed to process upload", err);
+      alert("Could not process image. Please try a different file.");
+    } finally {
+      if (loading) loading.style.opacity = 0;
+      this._setSaveBlockerVisible(false);
+      this._syncHomeActionState();
+    }
+  }
+
+  async _handleSaveMemory() {
+    if (this.saveInFlight || this.blockerActive) return;
+    if (!this._hasSessionImage()) return;
+    const hasOpeningLine = this.messages.some(
+      (msg) => msg && msg.role === "assistant" && typeof msg.content === "string" && msg.content.trim().length > 0
+    );
+    if (!hasOpeningLine) return;
+
+    this.saveInFlight = true;
+    this._syncHomeActionState();
+    this._setSaveBlockerVisible(true, "Generating diary...");
+    this._stopVoiceTimer();
+    this._clearMockStream({ clearText: false });
+
+    const transcript = this._getTranscriptForSave();
+    try {
+      const diaryCard = await this._simulateDiaryGeneration({ transcript });
+      if (!diaryCard) return;
+      if (!this.currentSource?.render?.blob || !this.currentSource?.thumb?.blob) return;
+
+      const id = createMemoryId();
+      const record = this._serializeMemory(id, { diaryCard, transcript });
+
+      await this.storage.saveMemory(record, { thumbBlob: this.currentSource.thumb.blob, renderBlob: this.currentSource.render.blob });
+
+      const material = cloneMaterialFromSettings(this.editorMaterial, this.settings);
+      this._setMaterialSeed(material, id);
+      this._registerMaterial(material);
+      const texture = await loadTextureFromBlob(this.currentSource.render.blob, this.textureLoader);
+      this._applyTexture(material, texture);
+
+      const memoryMesh = new THREE.Points(this.geometry, material);
+      this._setMeshScale(memoryMesh, record.dimensions);
+      this._addMemory({ id, record, mesh: memoryMesh, hasHighRes: true, renderLoading: false }, { prepend: true });
+      this._enterHall();
+    } catch (err) {
+      console.warn("Failed to save memory", err);
+      alert("Could not save memory. Please try again.");
+    } finally {
+      this.saveInFlight = false;
+      this._setSaveBlockerVisible(false);
+      this._syncHomeActionState();
+    }
+  }
+
   async _initStorage() {
     try {
       await this.storage.init();
       await this._hydrateFromStorage();
     } catch (err) {
       console.warn("Storage initialization failed; continuing without persistence", err);
+    } finally {
+      this._applyInitialMode();
     }
   }
 
@@ -746,7 +827,17 @@ export class App {
     if (this.state.memories.length > 0) this._updateGalleryTarget();
   }
 
-  _serializeMemory(id) {
+  _applyInitialMode() {
+    const hasMemories = this.state.memories.length > 0;
+    if (!this.hasUploadedOnce && !hasMemories) {
+      this._setMode("landing");
+    } else {
+      this._setMode("home");
+    }
+  }
+
+  _serializeMemory(id, { diaryCard, transcript } = {}) {
+    const fallbackDiary = diaryCard || this._createDiaryCardStub();
     return {
       id,
       createdAt: new Date().toISOString(),
@@ -754,7 +845,92 @@ export class App {
       assets: { thumbKey: `${id}:thumb`, renderKey: `${id}:render` },
       settingsSnapshot: { ...this.settings },
       dimensions: this.currentSource?.dimensions,
+      diaryCard: fallbackDiary,
+      transcript: transcript || "",
     };
+  }
+
+  _createDiaryCardStub() {
+    return {
+      title: "Untitled",
+      summary: "",
+      mood: "",
+      tags: [],
+      dateISO: new Date().toISOString(),
+    };
+  }
+
+  _getTranscriptForSave() {
+    return this.liveReplyText?.trim() || "";
+  }
+
+  _createMockDiaryCard({ createdAt, transcript }) {
+    const createdDate = createdAt ? new Date(createdAt) : new Date();
+    const summaryBase = transcript ? transcript.trim() : "";
+    const summary =
+      summaryBase.length > 0
+        ? summaryBase.slice(0, 180)
+        : "A quiet moment, held in the light and motion of the archive.";
+    return {
+      title: "Afterglow Reflection",
+      summary,
+      mood: "Calm",
+      tags: ["afterglow", "memory"],
+      dateISO: createdDate.toISOString(),
+    };
+  }
+
+  _simulateImageAnalysis() {
+    const options = [
+      "soft light, a centered subject, and a calm palette",
+      "gentle contrast, a still focal point, and a quiet mood",
+      "warm tones, soft shadows, and an intimate composition",
+      "clean lines, muted color, and a grounded atmosphere",
+    ];
+    const delay = 1200 + Math.random() * 800;
+    const choice = options[Math.floor(Math.random() * options.length)];
+    return new Promise((resolve) => {
+      window.setTimeout(() => resolve(choice), delay);
+    });
+  }
+
+  _buildOpeningLine(analysis) {
+    const raw = analysis ? String(analysis).trim() : "a quiet scene";
+    const cleaned = raw.replace(/[.!?]+$/, "");
+    return `Noticing ${cleaned}; what does this moment mean to you?`;
+  }
+
+  _setOpeningLineFromAnalysis(analysis) {
+    const line = this._buildOpeningLine(analysis);
+    this.messages = [{ role: "assistant", content: line }];
+    this._setLiveReplyText(line);
+    return line;
+  }
+
+  _clearMockDiaryTimer() {
+    if (this.mockDiaryTimer) {
+      clearTimeout(this.mockDiaryTimer);
+      this.mockDiaryTimer = null;
+    }
+    if (this.mockDiaryResolve) {
+      this.mockDiaryResolve(null);
+      this.mockDiaryResolve = null;
+    }
+  }
+
+  _simulateDiaryGeneration({ transcript }) {
+    this._clearMockDiaryTimer();
+    return new Promise((resolve) => {
+      this.mockDiaryResolve = resolve;
+      const delay = 2000 + Math.random() * 2000;
+      this.mockDiaryTimer = window.setTimeout(() => {
+        this.mockDiaryTimer = null;
+        const nextCard = this._createMockDiaryCard({ transcript });
+        const finalize = this.mockDiaryResolve;
+        this.mockDiaryResolve = null;
+        if (finalize) finalize(nextCard);
+      }, delay);
+    });
   }
 
   async _deserializeMemory(record) {
@@ -809,6 +985,7 @@ export class App {
     this._updateGalleryLayout();
     this._updateGalleryTarget();
     this._updateMemoryCount();
+    if (this.infoOpen) this._renderInfoForSelectedMemory();
   }
 
   async _ensureRenderForCurrent() {
@@ -896,21 +1073,235 @@ export class App {
     root.style.setProperty("--af-nav-offset", `calc(${rect.height}px + env(safe-area-inset-top, 0px))`);
   }
 
-  _nextVoiceState() {
-    const order = ["idle", "listening", "thinking"];
-    const currentIndex = order.indexOf(this.voiceState);
-    const nextState = order[(currentIndex + 1) % order.length];
-    this._setVoiceState(nextState);
+  _setSaveBlockerVisible(isVisible, text) {
+    const { blocker, blockerText } = this.dom;
+    this.blockerActive = isVisible;
+    document.body.classList.toggle("is-blocked", isVisible);
+    if (blockerText && typeof text === "string") {
+      blockerText.innerText = text;
+    }
+    if (!blocker) return;
+    blocker.setAttribute("aria-hidden", isVisible ? "false" : "true");
   }
 
-  _setVoiceState(state) {
-    const config = VOICE_STATES[state] || VOICE_STATES.idle;
-    this.voiceState = state;
-    const { voiceOverlay, voicePillText, voiceBubbleText, voiceSubText } = this.dom;
-    if (voiceOverlay) voiceOverlay.classList.toggle("active", state !== "idle");
-    if (voicePillText) voicePillText.innerText = config.pill;
-    if (voiceBubbleText) voiceBubbleText.innerText = config.bubble;
-    if (voiceSubText) voiceSubText.innerText = config.sub;
+  _markHudDirty() {
+    this._hudDirty = true;
+  }
+
+  _setMode(mode) {
+    const { controlPanel, galleryUI, hallResetBtn, landingRoot, appShell } = this.dom;
+    const nextMode = mode === "landing" || mode === "gallery" || mode === "home" ? mode : "home";
+    const isGallery = nextMode === "gallery";
+    const isHome = nextMode === "home";
+    this.state.mode = nextMode;
+    document.body.classList.remove("mode-landing", "mode-home", "mode-gallery");
+    document.body.classList.add(`mode-${nextMode}`);
+    if (controlPanel) controlPanel.classList.toggle("hidden", !isHome);
+    if (galleryUI) galleryUI.classList.toggle("hidden", !isGallery);
+    if (hallResetBtn) hallResetBtn.classList.toggle("hidden", !isGallery);
+    if (landingRoot) landingRoot.setAttribute("aria-hidden", nextMode === "landing" ? "false" : "true");
+    if (appShell) appShell.setAttribute("aria-hidden", nextMode === "landing" ? "true" : "false");
+    if (this._homeUiVisible !== isHome) {
+      this._homeUiVisible = isHome;
+      this._setHomeVoiceUIVisible(isHome);
+    }
+    if (isHome) this._markHudDirty();
+    else this._hudDirty = false;
+  }
+
+  _syncHomeVoiceUI() {
+    if (this.state?.mode !== "home") return;
+    if (!this._homeUiVisible) {
+      this._homeUiVisible = true;
+      this._setHomeVoiceUIVisible(true);
+    }
+    this._syncHomeActionState();
+    this._syncLiveReplyUI();
+  }
+
+  _setHomeVoiceUIVisible(isVisible) {
+    const { agentPill, homeVoice } = this.dom;
+    if (agentPill) {
+      agentPill.style.display = isVisible ? "inline-flex" : "none";
+      agentPill.style.pointerEvents = isVisible ? "auto" : "none";
+    }
+    if (homeVoice) {
+      homeVoice.style.display = isVisible ? "flex" : "none";
+      homeVoice.style.pointerEvents = isVisible ? "auto" : "none";
+    }
+    if (!isVisible) {
+      this._stopVoiceTimer();
+      this._clearMockStream({ clearText: true });
+      this._clearMockDiaryTimer();
+    }
+    this._syncLiveReplyUI();
+  }
+
+  _hasSessionImage() {
+    const source = this.sessionImage || this.currentSource;
+    return Boolean(source?.render?.blob && source?.thumb?.blob);
+  }
+
+  _syncHomeActionState() {
+    const { micBtn, saveMemoryBtn, closeVoiceBtn, homePrompt } = this.dom;
+    const isHome = this.state?.mode === "home";
+    const hasImage = this._hasSessionImage();
+    const hasOpeningLine = this.messages.some(
+      (msg) => msg && msg.role === "assistant" && typeof msg.content === "string" && msg.content.trim().length > 0
+    );
+    const canUseMic = isHome && hasImage && !this.saveInFlight && !this.blockerActive;
+    const canSave = canUseMic && hasOpeningLine;
+
+    const nextMicDisabled = !canUseMic;
+    const nextSaveDisabled = !canSave;
+    const nextCloseDisabled = !canUseMic;
+    if (micBtn && this._hudCache.micDisabled !== nextMicDisabled) {
+      micBtn.disabled = nextMicDisabled;
+      this._hudCache.micDisabled = nextMicDisabled;
+    }
+    if (saveMemoryBtn && this._hudCache.saveDisabled !== nextSaveDisabled) {
+      saveMemoryBtn.disabled = nextSaveDisabled;
+      this._hudCache.saveDisabled = nextSaveDisabled;
+    }
+    if (closeVoiceBtn && this._hudCache.closeDisabled !== nextCloseDisabled) {
+      closeVoiceBtn.disabled = nextCloseDisabled;
+      this._hudCache.closeDisabled = nextCloseDisabled;
+    }
+
+    if (homePrompt) {
+      const showPrompt = isHome && !hasImage;
+      if (this._hudCache.promptVisible !== showPrompt) {
+        homePrompt.style.display = showPrompt ? "block" : "none";
+        this._hudCache.promptVisible = showPrompt;
+      }
+    }
+
+    if (!hasImage && this.voiceTimerRunning) {
+      this._stopVoiceTimer({ reset: true });
+      this._clearMockStream({ clearText: true });
+    }
+  }
+
+  _updateVoiceTimerLabel() {
+    const { voiceTimer } = this.dom;
+    if (!voiceTimer) return;
+    const minutes = Math.floor(this.voiceTimerSeconds / 60);
+    const seconds = this.voiceTimerSeconds % 60;
+    const nextLabel = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    if (this._hudCache.timerLabel !== nextLabel) {
+      voiceTimer.textContent = nextLabel;
+      this._hudCache.timerLabel = nextLabel;
+    }
+  }
+
+  _toggleVoiceTimer() {
+    if (this.saveInFlight || this.blockerActive) return;
+    if (!this._hasSessionImage()) return;
+    if (this.voiceTimerRunning) {
+      this._stopVoiceTimer();
+      this._startMockAssistantStream();
+      return;
+    }
+    this._clearMockStream({ clearText: true });
+    this._startVoiceTimer();
+  }
+
+  _startVoiceTimer() {
+    if (this.voiceTimerRunning) return;
+    this.voiceTimerRunning = true;
+    this._setMicActiveState(true);
+    this.voiceTimerInterval = window.setInterval(() => {
+      this.voiceTimerSeconds += 1;
+      this._updateVoiceTimerLabel();
+    }, 1000);
+    this._syncLiveReplyUI();
+  }
+
+  _stopVoiceTimer({ reset = false } = {}) {
+    if (this.voiceTimerInterval) {
+      clearInterval(this.voiceTimerInterval);
+      this.voiceTimerInterval = null;
+    }
+    this.voiceTimerRunning = false;
+    if (reset) {
+      this.voiceTimerSeconds = 0;
+    }
+    this._setMicActiveState(false);
+    this._updateVoiceTimerLabel();
+    this._syncLiveReplyUI();
+  }
+
+  _resetHomeDraftState({ resetMessages = false } = {}) {
+    this._stopVoiceTimer({ reset: true });
+    this._clearMockStream({ clearText: true });
+    if (resetMessages) this.messages = [];
+  }
+
+  _setMicActiveState(isActive) {
+    const { micBtn } = this.dom;
+    if (!micBtn) return;
+    micBtn.classList.toggle("is-active", isActive);
+    micBtn.setAttribute("aria-pressed", isActive ? "true" : "false");
+    this._markHudDirty();
+  }
+
+  _setLiveReplyText(text) {
+    const nextText = typeof text === "string" ? text : "";
+    if (this.liveReplyText === nextText) return;
+    this.liveReplyText = nextText;
+    this._markHudDirty();
+    this._syncLiveReplyUI();
+  }
+
+  _clearMockStream({ clearText = false } = {}) {
+    if (this.mockStreamInterval) {
+      clearInterval(this.mockStreamInterval);
+      this.mockStreamInterval = null;
+    }
+    if (clearText) this._setLiveReplyText("");
+  }
+
+  _startMockAssistantStream() {
+    if (this.state?.mode !== "home" || !this._hasSessionImage() || this.blockerActive) return;
+    this._clearMockStream({ clearText: true });
+    const reply = "I caught a gentle moment here—soft light, a steady calm, and the feeling of holding onto something tender.";
+    let index = 0;
+    const step = () => {
+      if (this.state?.mode !== "home") {
+        if (this.mockStreamInterval) {
+          clearInterval(this.mockStreamInterval);
+          this.mockStreamInterval = null;
+        }
+        return;
+      }
+      index += 1;
+      this._setLiveReplyText(reply.slice(0, index));
+      if (index >= reply.length) {
+        this._clearMockStream({ clearText: false });
+      }
+    };
+    this.mockStreamInterval = window.setInterval(step, 80);
+  }
+
+  _syncLiveReplyUI() {
+    const { liveReply } = this.dom;
+    if (!liveReply) return;
+    const isHome = this.state?.mode === "home";
+    const hasImage = this._hasSessionImage();
+    const hasText = Boolean(this.liveReplyText && this.liveReplyText.trim().length > 0);
+    const shouldShow = isHome && hasImage && (hasText || this.voiceTimerRunning);
+    const nextText = shouldShow ? (hasText ? this.liveReplyText : "Listening...") : "";
+
+    if (this._hudCache.liveReplyVisible !== shouldShow) {
+      liveReply.style.display = shouldShow ? "block" : "none";
+      liveReply.style.pointerEvents = shouldShow ? "auto" : "none";
+      this._hudCache.liveReplyVisible = shouldShow;
+    }
+    if (this._hudCache.liveReplyText !== nextText) {
+      liveReply.textContent = nextText;
+      this._hudCache.liveReplyText = nextText;
+      if (shouldShow) liveReply.scrollTop = liveReply.scrollHeight;
+    }
   }
 
   _setMaterialSeed(material, id) {
@@ -965,8 +1356,114 @@ export class App {
     this._syncCarouselToIndex({ snap: true });
   }
 
+  _enterHall() {
+    if (this._isInHall()) return false;
+    if (this.state.memories.length === 0) {
+      alert("Archive is empty.");
+      return false;
+    }
+
+    this._setMode("gallery");
+
+    this.editorGroup.visible = false;
+    this.galleryGroup.visible = true;
+    this._applyHallCamera(true);
+
+    this.desiredTarget.set(0, 0, 0);
+    this._updateGalleryTarget({ snap: true });
+    this._ensureRenderForCurrent();
+    if (this.infoOpen) this._renderInfoForSelectedMemory();
+    return true;
+  }
+
   _isInHall() {
     return this.state.mode === "gallery";
+  }
+
+  _setInfoOpen(isOpen) {
+    this.infoOpen = isOpen;
+    const { infoPanel } = this.dom;
+    if (!infoPanel) return;
+    infoPanel.classList.toggle("af-hidden", !isOpen);
+    infoPanel.setAttribute("aria-hidden", isOpen ? "false" : "true");
+    if (isOpen) this._renderInfoForSelectedMemory();
+  }
+
+  _getSelectedMemoryMeta() {
+    const count = this.state.memories.length;
+    if (!count) return { memory: null, index: -1, number: null };
+    const index = wrapIndex(this.state.galleryIndex, count);
+    const memory = this.state.memories[index] || null;
+    if (!memory) return { memory: null, index: -1, number: null };
+    return { memory, index, number: index + 1 };
+  }
+
+  _renderInfoForSelectedMemory() {
+    const {
+      infoMemNo,
+      infoEmpty,
+      infoDiary,
+      diaryTitle,
+      diaryDate,
+      diaryMood,
+      diaryTags,
+      diarySummary,
+      diaryTranscript,
+    } = this.dom;
+    if (!infoMemNo && !infoEmpty && !infoDiary) return;
+
+    const { memory, number } = this._getSelectedMemoryMeta();
+    if (infoMemNo) {
+      infoMemNo.innerText = memory ? `MEM ${String(number).padStart(2, "0")}` : "MEM --";
+    }
+
+    if (!memory) {
+      if (infoEmpty) {
+        infoEmpty.innerText = "No memory selected yet.";
+        infoEmpty.style.display = "block";
+      }
+      if (infoDiary) infoDiary.style.display = "none";
+      return;
+    }
+
+    const diary = memory.record?.diaryCard;
+    const hasDiary = Boolean(diary);
+    if (!hasDiary) {
+      if (infoEmpty) {
+        infoEmpty.innerText = "No diary for this memory yet.";
+        infoEmpty.style.display = "block";
+      }
+      if (infoDiary) infoDiary.style.display = "none";
+      return;
+    }
+
+    if (infoEmpty) infoEmpty.style.display = "none";
+    if (infoDiary) infoDiary.style.display = "flex";
+
+    if (diaryTitle) diaryTitle.innerText = diary.title || "Untitled";
+    if (diarySummary) diarySummary.innerText = diary.summary || "";
+
+    const dateText = diary.dateISO ? new Date(diary.dateISO).toLocaleDateString() : "";
+    if (diaryDate) diaryDate.innerText = dateText;
+
+    const moodText = diary.mood || "";
+    if (diaryMood) {
+      diaryMood.innerText = moodText;
+      diaryMood.style.display = moodText ? "inline" : "none";
+    }
+
+    const tags = Array.isArray(diary.tags) ? diary.tags : [];
+    if (diaryTags) {
+      diaryTags.innerText = tags.length ? tags.map((tag) => `#${tag}`).join(" ") : "";
+      diaryTags.style.display = tags.length ? "block" : "none";
+    }
+
+    const transcript = memory.record?.transcript || "";
+    if (diaryTranscript) {
+      diaryTranscript.innerText = transcript;
+      const details = diaryTranscript.closest("details");
+      if (details) details.style.display = transcript ? "block" : "none";
+    }
   }
 
   _updateMemoryCount() {
@@ -1033,6 +1530,7 @@ export class App {
     this._setCarouselTarget(this.state.galleryIndex);
     this._ensureRenderForCurrent();
     this._updateGalleryCounter();
+    if (this.infoOpen) this._renderInfoForSelectedMemory();
   }
 
   _setCarouselTarget(targetIndex) {
@@ -1155,6 +1653,10 @@ export class App {
     requestAnimationFrame(this._animate);
 
     const time = this.clock.getElapsedTime();
+    if (this._hudDirty && this.state?.mode === "home") {
+      this._syncHomeVoiceUI();
+      this._hudDirty = false;
+    }
     this.editorMaterial.uniforms.uTime.value = time;
 
     // memories animation
@@ -1162,7 +1664,7 @@ export class App {
       mem.mesh.material.uniforms.uTime.value = time + i * 10;
     });
 
-    if (this.state.mode === "editor") {
+    if (this.state.mode === "home") {
       this.editorParticles.rotation.y = Math.sin(time * 0.1) * 0.03 + this.mouseX * 0.05;
       this.editorParticles.rotation.x = Math.cos(time * 0.08) * 0.03 + this.mouseY * 0.05;
     }

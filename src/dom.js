@@ -5,6 +5,7 @@ export function getDom() {
     container: byId("canvas-container"),
     loading: byId("loading"),
     nav: document.querySelector(".af-nav"),
+    appShell: byId("af-app-shell"),
 
     renderToggle: byId("af-render-toggle"),
     renderKolam: byId("af-render-kolam"),
@@ -16,7 +17,6 @@ export function getDom() {
     effectPanel: byId("effect-panel"),
 
     fileInput: byId("fileInput"),
-    archiveBtn: byId("archiveBtn"),
     enterHallBtn: byId("enter-hall-btn"),
     backBtn: byId("back-btn"),
     prevZone: byId("prev-zone"),
@@ -27,11 +27,32 @@ export function getDom() {
     galleryCounter: byId("gallery-counter"),
     memoryCount: byId("memory-count"),
 
-    micButton: byId("af-mic-button"),
-    voiceOverlay: byId("af-voice-overlay"),
-    voicePillText: byId("af-voice-pill-text"),
-    voiceBubbleText: byId("af-voice-bubble-text"),
-    voiceSubText: byId("af-voice-sub"),
+    agentPill: byId("af-agent-pill"),
+    homeVoice: byId("af-home-voice"),
+    homePrompt: byId("af-home-prompt"),
+    micBtn: byId("af-mic-btn"),
+    voiceTimer: byId("af-voice-timer"),
+    saveMemoryBtn: byId("af-save-memory"),
+    closeVoiceBtn: byId("af-close-voice"),
+    liveReply: byId("af-live-reply"),
+
+    navInfo: document.querySelector('[data-action="open-info"]'),
+    infoPanel: byId("af-info-panel"),
+    infoClose: byId("af-info-close"),
+    infoMemNo: byId("af-info-memno"),
+    infoEmpty: byId("af-info-empty"),
+    infoDiary: byId("af-info-diary"),
+    diaryTitle: byId("af-diary-title"),
+    diaryDate: byId("af-diary-date"),
+    diaryMood: byId("af-diary-mood"),
+    diaryTags: byId("af-diary-tags"),
+    diarySummary: byId("af-diary-summary"),
+    diaryTranscript: byId("af-diary-transcript"),
+
+    landingRoot: byId("af-landing"),
+    landingUploadBtn: byId("af-landing-upload"),
+    blocker: byId("af-save-blocker"),
+    blockerText: byId("af-blocker-text"),
 
     // sliders
     sliders: {
