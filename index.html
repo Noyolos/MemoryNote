@@ -24,7 +24,20 @@
             width: 100%;
             height: 100%;
         }
+        #af-app-shell {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
         #canvas-container { width: 100vw; height: 100vh; display: block; position: absolute; top: 0; left: 0; z-index: 1; }
+        body.mode-landing #af-app-shell { display: none; }
+        body.mode-landing #af-landing { display: flex; }
+        body.mode-home #af-landing,
+        body.mode-gallery #af-landing { display: none; }
+        body.mode-home #af-app-shell,
+        body.mode-gallery #af-app-shell { display: block; }
+        body.is-blocked #af-app-shell { pointer-events: none; }
+        body.is-blocked #af-save-blocker { display: flex; pointer-events: auto; }
 
         /* UI layout */
         #ui-layer {
@@ -115,6 +128,10 @@
             pointer-events: auto; position: relative; z-index: 10;
         }
         .btn:hover { background: rgba(255, 255, 255, 0.15); border-color: #fff; color: #fff; }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
 
         .upload-btn-wrapper input[type=file] {
             position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; height: 100%; width: 100%; z-index: 20;
@@ -247,104 +264,385 @@
             opacity: 0.85;
         }
 
-        /* Mic placeholder */
-        .af-mic {
-            position: fixed;
-            bottom: 32px;
+        /* Home HUD */
+        #af-hud {
+            position: absolute;
+            inset: 0;
+            z-index: 25;
+            pointer-events: none;
+        }
+        #af-agent-pill {
+            position: absolute;
+            top: calc(var(--af-nav-offset, 56px) + 8px);
             left: 50%;
             transform: translateX(-50%);
-            z-index: 25;
-            pointer-events: auto;
-        }
-        .af-mic__button {
-            width: 64px;
-            height: 64px;
-            border-radius: 50%;
-            border: 1px solid rgba(255,255,255,0.3);
-            background: rgba(255,255,255,0.06);
-            color: #fff;
-            backdrop-filter: blur(4px);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s, border-color 0.2s;
-        }
-        .af-mic__button:hover {
-            background: rgba(255,255,255,0.12);
-            border-color: rgba(255,255,255,0.6);
-        }
-        .af-mic__button svg {
-            width: 20px;
-            height: 20px;
-        }
-
-        /* Voice overlay */
-        #af-voice-overlay {
-            position: fixed;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            pointer-events: none;
-            gap: 12px;
-            z-index: 20;
-            opacity: 0;
-            transition: opacity 0.2s ease;
-        }
-        #af-voice-overlay.active { opacity: 1; }
-        #af-voice-pill {
-            margin-top: calc(var(--af-nav-offset, 56px) + 10px);
-            display: inline-flex;
+            display: none;
             align-items: center;
             gap: 8px;
             padding: 8px 14px;
             border-radius: 999px;
-            background: rgba(255,255,255,0.08);
-            border: 1px solid rgba(255,255,255,0.18);
+            background: rgba(0, 0, 0, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            backdrop-filter: blur(6px);
             font-size: 12px;
             letter-spacing: 1px;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
         }
-        #af-voice-pill .dot {
+        .af-agent-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #ff6b6b;
-            box-shadow: 0 0 8px rgba(255,107,107,0.6);
+            background: #4ade80;
+            box-shadow: 0 0 8px rgba(74, 222, 128, 0.75);
         }
-        #af-voice-bubble {
-            min-width: 260px;
-            max-width: 420px;
-            padding: 14px 18px;
-            border-radius: 12px;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.15);
-            backdrop-filter: blur(8px);
-            color: #fff;
-            text-align: center;
+        .af-agent-name { font-weight: 600; }
+        #af-home-voice {
+            position: absolute;
+            left: 50%;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+            transform: translateX(-50%);
+            display: none;
+            align-items: center;
+            flex-direction: column;
+            gap: 12px;
         }
-        #af-voice-bubble-text {
-            font-size: 13px;
-            line-height: 1.4;
-            opacity: 0.92;
-        }
-        #af-voice-sub {
-            margin-top: 6px;
+        #af-home-prompt {
+            display: none;
             font-size: 11px;
             letter-spacing: 1px;
             text-transform: uppercase;
-            opacity: 0.65;
+            color: rgba(255, 255, 255, 0.55);
+            text-align: center;
+            pointer-events: none;
+        }
+        .af-mic {
+            width: 88px;
+            height: 88px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.05) 60%);
+            color: #fff;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+        }
+        .af-mic:hover {
+            border-color: rgba(255, 255, 255, 0.7);
+            background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.08) 60%);
+        }
+        .af-mic:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .af-mic svg {
+            width: 26px;
+            height: 26px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+        }
+        .af-mic.is-active {
+            border-color: rgba(78, 222, 128, 0.9);
+            box-shadow: 0 0 18px rgba(78, 222, 128, 0.35), 0 12px 24px rgba(0, 0, 0, 0.45);
+        }
+        .af-bottom-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .af-pill-mini {
+            min-width: 70px;
+            text-align: center;
+            padding: 6px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.6);
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+        .af-save {
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 999px;
+            font-size: 11px;
+            letter-spacing: 1px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .af-save:hover {
+            background: rgba(255, 255, 255, 0.16);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+        .af-save:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .af-close-x {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            background: rgba(255, 255, 255, 0.06);
+            cursor: pointer;
+            position: relative;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .af-close-x:hover {
+            background: rgba(255, 255, 255, 0.14);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+        .af-close-x::before,
+        .af-close-x::after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 14px;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.75);
+            transform: translate(-50%, -50%) rotate(45deg);
+        }
+        .af-close-x::after {
+            transform: translate(-50%, -50%) rotate(-45deg);
+        }
+        #af-agent-pill,
+        #af-home-voice,
+        #af-home-voice * {
+            pointer-events: auto;
+        }
+        #af-live-reply {
+            display: none;
+            pointer-events: none;
+            max-width: min(520px, 90vw);
+            max-height: 140px;
+            overflow-y: auto;
+            padding: 10px 14px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 12px;
+            line-height: 1.4;
+            text-align: center;
+            letter-spacing: 0.2px;
+            box-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
+        }
+        #af-save-blocker {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.75);
+            z-index: 9999;
+            pointer-events: auto;
+        }
+        .af-save-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+            border-radius: 14px;
+            background: rgba(0, 0, 0, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 12px;
+            letter-spacing: 0.6px;
+            color: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 18px 30px rgba(0, 0, 0, 0.5);
+        }
+        .af-spinner {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.25);
+            border-top-color: rgba(255, 255, 255, 0.85);
+            animation: af-spin 0.9s linear infinite;
+        }
+        #af-landing {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            z-index: 9000;
+            pointer-events: auto;
+        }
+        .af-landing-card {
+            width: min(420px, 90vw);
+            padding: 24px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.7);
+            text-align: center;
+            box-shadow: 0 24px 40px rgba(0, 0, 0, 0.6);
+        }
+        .af-landing-title {
+            font-size: 12px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.7);
+        }
+        .af-landing-copy {
+            margin: 12px 0 18px;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+        #af-landing-upload {
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 11px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        #af-landing-upload:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+        .af-hidden { display: none; pointer-events: none; }
+        #af-info-panel.af-hidden { display: none; pointer-events: none; }
+        #af-info-panel {
+            position: fixed;
+            top: calc(var(--af-nav-offset, 56px) + 12px);
+            right: 18px;
+            bottom: 18px;
+            width: min(420px, 92vw);
+            z-index: 70;
+            pointer-events: auto;
+        }
+        .af-info-card {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 16px;
+            border-radius: 16px;
+            background: rgba(0, 0, 0, 0.78);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 18px 30px rgba(0, 0, 0, 0.5);
+        }
+        .af-info-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .af-info-title {
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.75);
+        }
+        .af-info-close {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .af-info-close:hover {
+            background: rgba(255, 255, 255, 0.18);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+        .af-info-body {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        .af-info-kicker {
+            font-size: 10px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        .af-info-empty {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        .af-info-diary {
+            display: none;
+            gap: 10px;
+            flex-direction: column;
+        }
+        .af-diary-title {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+        .af-diary-meta {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.65);
+        }
+        .af-diary-tags {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        .af-diary-summary {
+            font-size: 12px;
+            line-height: 1.5;
+            color: rgba(255, 255, 255, 0.85);
+        }
+        .af-diary-details {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+        .af-diary-details summary {
+            cursor: pointer;
+            margin-bottom: 6px;
+        }
+        .af-diary-details pre {
+            margin: 0;
+            white-space: pre-wrap;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 11px;
+            line-height: 1.4;
+            color: rgba(255, 255, 255, 0.8);
+        }
+        @keyframes af-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
+    <div id="af-app-shell">
     <div class="af-nav">
         <div class="af-nav__brand">AFTERGLOW</div>
         <div class="af-nav__center">
             <div class="af-nav__link">THE GARDEN</div>
             <div class="af-nav__link">MEMORY</div>
             <div class="af-nav__link">MUSIC</div>
-            <div class="af-nav__link">INFO</div>
+            <div class="af-nav__link" data-action="open-info">INFO</div>
         </div>
         <div class="af-nav__right">
             <div class="af-mode-toggle" id="af-render-toggle">
@@ -460,7 +758,6 @@
                     <span>Upload</span>
                     <input type="file" id="fileInput" accept="image/*" />
                 </div>
-                <button id="archiveBtn" class="btn">Archive</button>
             </div>
             <button id="enter-hall-btn" class="btn" style="border-color: #666; color: #fff; margin-top: 5px;">
                 Enter Hall <span id="memory-count" style="opacity:0.6; font-size:9px; margin-left:5px;">(0)</span>
@@ -476,26 +773,83 @@
                 <div style="font-size: 10px; opacity: 0.6; letter-spacing: 2px;">AFTERGLOW ARCHIVE</div>
             </div>
         </div>
+
+        <div id="af-hud">
+            <div id="af-agent-pill" class="af-agent-pill" role="button" aria-label="Agent selector">
+                <span class="af-agent-dot" aria-hidden="true"></span>
+                <span class="af-agent-name">Gemini</span>
+            </div>
+            <div id="af-home-voice" class="af-home-voice">
+                <div id="af-home-prompt" class="af-home-prompt">Use WORKSTATION -> UPLOAD to begin</div>
+                <div id="af-live-reply" class="af-live-reply" aria-live="polite"></div>
+                <button id="af-mic-btn" class="af-mic" type="button" aria-label="Mic">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z"/>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                        <line x1="12" y1="19" x2="12" y2="22"/>
+                        <line x1="8" y1="22" x2="16" y2="22"/>
+                    </svg>
+                </button>
+                <div class="af-bottom-row">
+                    <div id="af-voice-timer" class="af-pill-mini">00:00</div>
+                    <button id="af-save-memory" class="af-save" type="button">
+                        <span class="af-save-label">Save Memory</span><span aria-hidden="true">&gt;</span>
+                    </button>
+                    <button id="af-close-voice" class="af-close-x" type="button" aria-label="Close"></button>
+                </div>
+            </div>
+        </div>
+
+        <div id="af-info-panel" class="af-info-panel af-hidden" aria-hidden="true">
+            <div class="af-info-card">
+                <div class="af-info-head">
+                    <div class="af-info-title">INFO</div>
+                    <button id="af-info-close" class="af-info-close" type="button" aria-label="Close">×</button>
+                </div>
+
+                <div class="af-info-body">
+                    <div class="af-info-kicker" id="af-info-memno">MEM 01</div>
+
+                    <div id="af-info-empty" class="af-info-empty">
+                        No diary for this memory yet.
+                    </div>
+
+                    <div id="af-info-diary" class="af-info-diary">
+                        <div class="af-diary-title" id="af-diary-title"></div>
+                        <div class="af-diary-meta">
+                            <span id="af-diary-date"></span>
+                            <span id="af-diary-mood"></span>
+                        </div>
+                        <div class="af-diary-tags" id="af-diary-tags"></div>
+                        <div class="af-diary-summary" id="af-diary-summary"></div>
+
+                        <details class="af-diary-details">
+                            <summary>Transcript</summary>
+                            <pre id="af-diary-transcript"></pre>
+                        </details>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div id="canvas-container"></div>
-    <div id="af-voice-overlay" class="af-voice--hidden">
-        <div id="af-voice-pill"><span class="dot"></span><span id="af-voice-pill-text">Gemini — Idle</span></div>
-        <div id="af-voice-bubble">
-            <div id="af-voice-bubble-text">Tap the mic to start listening.</div>
-            <div id="af-voice-sub">Idle</div>
+    </div>
+
+    <div id="af-landing" class="af-landing" aria-hidden="true">
+        <div class="af-landing-card">
+            <div class="af-landing-title">Afterglow Ritual</div>
+            <div class="af-landing-copy">Upload an image to unlock your memory palace.</div>
+            <button id="af-landing-upload" type="button">Upload Image</button>
         </div>
     </div>
-    <div class="af-mic">
-        <button id="af-mic-button" class="af-mic__button" title="Voice / Chat (coming soon)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                <line x1="12" y1="19" x2="12" y2="22"/>
-                <line x1="8" y1="22" x2="16" y2="22"/>
-            </svg>
-        </button>
-    </div>
+
+        <div id="af-save-blocker" class="af-save-blocker" aria-hidden="true">
+            <div class="af-save-card">
+                <span class="af-spinner" aria-hidden="true"></span>
+                <span id="af-blocker-text">Generating diary...</span>
+            </div>
+        </div>
 
     <script type="module" src="/src/main.js"></script>
 </body>
