@@ -35,10 +35,11 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 - Node: recommended >= 18 (Vite 5 baseline).
 - Package manager: npm.
 - Commands: `npm install`, `npm run dev`, `npm run build`, `npm run preview`.
+- Backend: `cd server`, `npm install`, `npm run start` (Express on 8787).
 
 ---
 ## 3) Environment & Inputs
-- Env vars: none; no `.env*` files in repo.
+- Env vars: server reads `GEMINI_API_KEY` or `GOOGLE_API_KEY` from `server/.env` (see `server/.env.example`).
 - Input: user uploads an image via `#fileInput` (index.html).
 - Security/privacy: treat photos as sensitive; storage is local IndexedDB only.
 
@@ -53,6 +54,9 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 - `src/particles.js` — particle geometry generator.
 - `src/storage/idb.js` — IndexedDB WebStorageProvider, schemaVersion 1.
 - `package.json` / `package-lock.json` — scripts (`dev`, `build`, `preview`), deps (`three@0.128.0`, dev `vite@^5.0.0`).
+- `server/index.js` — Express API server (port 8787) for analyze/chat/diary.
+- `server/package.json` — backend deps/scripts.
+- `server/.env.example` — env template for Gemini API key.
 - `README.md` — brief run/build notes.
 
 ---
@@ -67,8 +71,9 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 - `src/main.js` creates `App` and starts its loop.
 - `App` (`src/app.js`):
   - Builds Three.js scene, editor particles, shader uniforms.
-  - Upload applies processed render texture to the editor and runs a mock image analysis; Home shows a single opening assistant line in `#af-live-reply`.
-  - Save Memory generates a diary card first, then persists a single memory record (thumb + render blobs + transcript + diaryCard) and lays out gallery (newest-first).
+  - Upload applies processed render texture to the editor and calls `/api/analyze-image` (multipart `image`) for caption/questions; Home shows the opening line in `#af-live-reply` and questions in `#af-home-prompt` (falls back to mock analysis on failure).
+  - Chat sends `contents[]` to `/api/chat` and streams the reply into `#af-live-reply` (falls back to mock reply on failure).
+  - Save Memory calls `/api/generate-diary` with `transcriptText`/`dateISO`, maps to `diaryCard`, then persists a single memory record (thumb + render blobs + transcript + diaryCard) and lays out gallery (newest-first).
   - Enter/exit hall toggles visibility; Hall uses a 5-item ring carousel (center ±2) with arc layout/scale/rotation and wrap-around nav; only those 5 are visible; high-res render loads lazily for the selected memory. Hall memory opacity is driven per-offset for a translucent "ghost film" look.
   - Inspect/rotate via OrbitControls on the canvas (mouse/touch drag), damping on; pan/zoom disabled. Wheel still adjusts `viewDistance` and syncs OrbitControls radius.
 

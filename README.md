@@ -8,6 +8,15 @@ npm install
 npm run dev
 ```
 
+## Run (api)
+```bash
+cd server
+npm install
+npm run start
+```
+
+Server runs on `http://localhost:8787` and reads `GEMINI_API_KEY` or `GOOGLE_API_KEY` from `server/.env` (see `server/.env.example`).
+
 ## Build
 ```bash
 npm run build

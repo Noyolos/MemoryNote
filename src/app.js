@@ -21,6 +21,15 @@ const IMAGE_QUALITY = {
   renderJpeg: 0.85,
 };
 
+const API_BASE = "http://localhost:8787";
+const HOME_PROMPT_DEFAULT = "Use WORKSTATION -> UPLOAD to begin";
+const HOME_PROMPT_FALLBACK_QUESTIONS = [
+  "What feeling is strongest in this moment?",
+  "What detail do you want to remember most?",
+  "Who or what is connected to this memory?",
+];
+const DIARY_FALLBACK_SUMMARY = "A quiet moment, held in the light and motion of the archive.";
+
 
 // Keep defaults close to your prototype
 const DEFAULT_SETTINGS = {
@@ -305,12 +314,16 @@ export class App {
     this.storage = new WebStorageProvider();
     this.textureLoader = new THREE.TextureLoader();
     this.desiredTarget = new THREE.Vector3(0, 0, 0);
+    this.defaultHomePrompt = this.dom.homePrompt?.textContent || HOME_PROMPT_DEFAULT;
     this.voiceTimerSeconds = 0;
     this.voiceTimerInterval = null;
     this.voiceTimerRunning = false;
     this._homeUiVisible = null;
     this.liveReplyText = "";
     this.infoOpen = false;
+    this.analysisQuestions = [];
+    this.chatContents = [];
+    this.chatRequestId = 0;
     this.mockStreamInterval = null;
     this.mockDiaryTimer = null;
     this.mockDiaryResolve = null;
@@ -708,7 +721,7 @@ export class App {
     if (!file) return;
     if (this.saveInFlight || this.blockerActive) return;
     this._setSaveBlockerVisible(true, "Analyzing image…");
-    const analysisPromise = this._simulateImageAnalysis();
+    const analysisPromise = this._getImageAnalysis(file);
     if (loading) loading.style.opacity = 1;
     try {
       const processed = await preprocessImage(file);
@@ -725,8 +738,10 @@ export class App {
       this._resetHomeDraftState({ resetMessages: true });
 
       const analysis = await analysisPromise;
-      this.imageAnalysis = analysis;
-      this._setOpeningLineFromAnalysis(analysis);
+      const caption = analysis?.caption || "";
+      this.imageAnalysis = caption;
+      this._setOpeningLineFromAnalysis(caption);
+      this._setHomePromptQuestions(analysis?.questions);
 
       if (!this.hasUploadedOnce) {
         this.hasUploadedOnce = true;
@@ -760,7 +775,7 @@ export class App {
 
     const transcript = this._getTranscriptForSave();
     try {
-      const diaryCard = await this._simulateDiaryGeneration({ transcript });
+      const diaryCard = await this._getDiaryCardForSave(transcript);
       if (!diaryCard) return;
       if (!this.currentSource?.render?.blob || !this.currentSource?.thumb?.blob) return;
 
@@ -870,13 +885,59 @@ export class App {
     const summary =
       summaryBase.length > 0
         ? summaryBase.slice(0, 180)
-        : "A quiet moment, held in the light and motion of the archive.";
+        : DIARY_FALLBACK_SUMMARY;
     return {
       title: "Afterglow Reflection",
       summary,
       mood: "Calm",
       tags: ["afterglow", "memory"],
       dateISO: createdDate.toISOString(),
+    };
+  }
+
+  _setHomePromptQuestions(questions, { useFallback = true } = {}) {
+    const normalized = Array.isArray(questions)
+      ? questions
+          .filter((item) => typeof item === "string")
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+      : [];
+    let nextQuestions = normalized;
+    if (useFallback && nextQuestions.length < 2) {
+      nextQuestions = HOME_PROMPT_FALLBACK_QUESTIONS.slice(0, 3);
+    } else if (nextQuestions.length > 3) {
+      nextQuestions = nextQuestions.slice(0, 3);
+    }
+    this.analysisQuestions = nextQuestions;
+    const { homePrompt } = this.dom;
+    if (!homePrompt) return;
+    if (!nextQuestions.length) {
+      homePrompt.textContent = this.defaultHomePrompt;
+      return;
+    }
+    homePrompt.textContent = nextQuestions.join(" / ");
+  }
+
+  async _getImageAnalysis(file) {
+    try {
+      return await this._fetchImageAnalysis(file);
+    } catch (err) {
+      console.warn("Image analysis failed; using fallback.", err);
+      const caption = await this._simulateImageAnalysis();
+      return { vibe: "", caption, questions: HOME_PROMPT_FALLBACK_QUESTIONS };
+    }
+  }
+
+  async _fetchImageAnalysis(file) {
+    const formData = new FormData();
+    formData.append("image", file);
+    const response = await fetch(`${API_BASE}/api/analyze-image`, { method: "POST", body: formData });
+    if (!response.ok) throw new Error("Analyze request failed");
+    const data = await response.json();
+    return {
+      vibe: typeof data.vibe === "string" ? data.vibe : "",
+      caption: typeof data.caption === "string" ? data.caption : "",
+      questions: Array.isArray(data.questions) ? data.questions.filter((q) => typeof q === "string") : [],
     };
   }
 
@@ -903,6 +964,7 @@ export class App {
   _setOpeningLineFromAnalysis(analysis) {
     const line = this._buildOpeningLine(analysis);
     this.messages = [{ role: "assistant", content: line }];
+    this.chatContents = [{ role: "assistant", parts: [{ text: line }] }];
     this._setLiveReplyText(line);
     return line;
   }
@@ -931,6 +993,51 @@ export class App {
         if (finalize) finalize(nextCard);
       }, delay);
     });
+  }
+
+  async _fetchDiaryResponse({ transcriptText, dateISO }) {
+    const response = await fetch(`${API_BASE}/api/generate-diary`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcriptText, dateISO }),
+    });
+    if (!response.ok) throw new Error("Diary request failed");
+    return await response.json();
+  }
+
+  _mapDiaryResponseToCard(apiResponse, { transcriptText, dateISO }) {
+    const response = apiResponse && typeof apiResponse === "object" ? apiResponse : {};
+    const diaryText = typeof response.diary === "string" ? response.diary.trim() : "";
+    const highlights = Array.isArray(response.highlights)
+      ? response.highlights.filter((item) => typeof item === "string" && item.trim().length > 0)
+      : [];
+    let summary = diaryText;
+    if (!summary && highlights.length) {
+      summary = highlights.join(" · ").trim();
+    }
+    if (!summary) {
+      summary = (transcriptText || "").trim();
+    }
+    summary = summary.slice(0, 180);
+    if (!summary) summary = DIARY_FALLBACK_SUMMARY;
+    return {
+      title: typeof response.title === "string" && response.title ? response.title : "Untitled",
+      summary,
+      mood: typeof response.mood === "string" ? response.mood : "",
+      tags: Array.isArray(response.tags) ? response.tags.filter((tag) => typeof tag === "string") : [],
+      dateISO: typeof dateISO === "string" && dateISO ? dateISO : new Date().toISOString(),
+    };
+  }
+
+  async _getDiaryCardForSave(transcript) {
+    const dateISO = new Date().toISOString();
+    try {
+      const apiResponse = await this._fetchDiaryResponse({ transcriptText: transcript, dateISO });
+      return this._mapDiaryResponseToCard(apiResponse, { transcriptText: transcript, dateISO });
+    } catch (err) {
+      console.warn("Diary generation failed; using fallback.", err);
+      return this._simulateDiaryGeneration({ transcript });
+    }
   }
 
   async _deserializeMemory(record) {
@@ -1169,7 +1276,7 @@ export class App {
     }
 
     if (homePrompt) {
-      const showPrompt = isHome && !hasImage;
+      const showPrompt = isHome && (!hasImage || (hasImage && this.analysisQuestions.length > 0));
       if (this._hudCache.promptVisible !== showPrompt) {
         homePrompt.style.display = showPrompt ? "block" : "none";
         this._hudCache.promptVisible = showPrompt;
@@ -1235,6 +1342,9 @@ export class App {
     this._stopVoiceTimer({ reset: true });
     this._clearMockStream({ clearText: true });
     if (resetMessages) this.messages = [];
+    this.chatContents = [];
+    this.analysisQuestions = [];
+    this._setHomePromptQuestions([], { useFallback: false });
   }
 
   _setMicActiveState(isActive) {
@@ -1261,10 +1371,45 @@ export class App {
     if (clearText) this._setLiveReplyText("");
   }
 
-  _startMockAssistantStream() {
+  _buildChatUserText() {
+    const parts = [];
+    if (this.imageAnalysis) parts.push(`Caption: ${this.imageAnalysis}.`);
+    if (this.analysisQuestions.length) parts.push(`Questions: ${this.analysisQuestions.join(" / ")}.`);
+    parts.push("Share a brief reflection on this moment.");
+    return parts.join(" ");
+  }
+
+  async _fetchChatReply(contents) {
+    const response = await fetch(`${API_BASE}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents }),
+    });
+    if (!response.ok) throw new Error("Chat request failed");
+    const data = await response.json();
+    return typeof data.text === "string" ? data.text : "";
+  }
+
+  async _startMockAssistantStream() {
     if (this.state?.mode !== "home" || !this._hasSessionImage() || this.blockerActive) return;
     this._clearMockStream({ clearText: true });
-    const reply = "I caught a gentle moment here—soft light, a steady calm, and the feeling of holding onto something tender.";
+    const fallbackReply = "I caught a gentle moment here—soft light, a steady calm, and the feeling of holding onto something tender.";
+    const requestId = (this.chatRequestId += 1);
+    const userText = this._buildChatUserText();
+    if (userText) {
+      this.chatContents.push({ role: "user", parts: [{ text: userText }] });
+    }
+    let reply = fallbackReply;
+    try {
+      const apiText = await this._fetchChatReply(this.chatContents);
+      if (this.chatRequestId !== requestId) return;
+      if (apiText) reply = apiText;
+    } catch (err) {
+      if (this.chatRequestId !== requestId) return;
+      console.warn("Chat request failed; using fallback.", err);
+    }
+    if (this.state?.mode !== "home") return;
+    this.chatContents.push({ role: "assistant", parts: [{ text: reply }] });
     let index = 0;
     const step = () => {
       if (this.state?.mode !== "home") {
