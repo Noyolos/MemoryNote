@@ -22,12 +22,8 @@ const IMAGE_QUALITY = {
 };
 
 const API_BASE = "http://localhost:8787";
-const HOME_PROMPT_DEFAULT = "Use WORKSTATION -> UPLOAD to begin";
-const HOME_PROMPT_FALLBACK_QUESTIONS = [
-  "What feeling is strongest in this moment?",
-  "What detail do you want to remember most?",
-  "Who or what is connected to this memory?",
-];
+const HOME_PROMPT_DEFAULT = "";
+const HOME_PROMPT_FALLBACK_QUESTIONS = [];
 const DIARY_FALLBACK_SUMMARY = "A quiet moment, held in the light and motion of the archive.";
 
 
@@ -318,6 +314,8 @@ export class App {
     this.voiceTimerSeconds = 0;
     this.voiceTimerInterval = null;
     this.voiceTimerRunning = false;
+    this.voiceTranscriptBuffer = "";
+    this.voiceCommitPending = false;
     this._homeUiVisible = null;
     this.liveReplyText = "";
     this.infoOpen = false;
@@ -346,6 +344,11 @@ export class App {
     this.diaryModalOpen = false;
     this.diaryModalData = null;
     this.shareResetTimer = null;
+    // [Codex] Voice Recognition Init
+    this.recognition = null;
+    this.isRecognizing = false;
+    this.currentUserBubble = null;
+    this._initSpeechRecognition();
 
     this.settings = { ...DEFAULT_SETTINGS };
     this.state = {
@@ -733,6 +736,130 @@ export class App {
     });
   }
 
+  _initSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    this.recognition = new SpeechRecognition();
+    this.recognition.lang = "en-US";
+    this.recognition.interimResults = true;
+    this.recognition.continuous = false;
+
+    this.recognition.onstart = () => {
+      this.isRecognizing = true;
+      this._setMicActiveState(true);
+      if (!this.currentUserBubble) {
+        this.currentUserBubble = this._appendChatBubble("user", "...");
+        this.currentUserBubble?.classList.add("pending");
+      }
+
+      if (!this.voiceTimerInterval) {
+        this._updateVoiceTimerLabel();
+        this.voiceTimerInterval = setInterval(() => {
+          this.voiceTimerSeconds++;
+          this._updateVoiceTimerLabel();
+        }, 1000);
+      }
+    };
+
+    this.recognition.onend = () => {
+      if (this.voiceTimerRunning) {
+        try {
+          this.recognition.start();
+        } catch (err) {
+          console.warn("Recognition restart failed", err);
+        }
+        return;
+      }
+      const shouldCommit = this.voiceCommitPending;
+      this.voiceCommitPending = false;
+      this.isRecognizing = false;
+      this._setMicActiveState(false);
+      if (this.voiceTimerInterval) {
+        clearInterval(this.voiceTimerInterval);
+        this.voiceTimerInterval = null;
+      }
+      const finalText = this.voiceTranscriptBuffer.trim();
+      if (shouldCommit && finalText) {
+        if (this.currentUserBubble) {
+          this.currentUserBubble.classList.remove("pending");
+          this.currentUserBubble.innerText = finalText;
+        }
+        this._handleUserVoiceInput(finalText);
+      } else if (this.currentUserBubble) {
+        this.currentUserBubble.remove();
+      }
+      this.currentUserBubble = null;
+      this.voiceTranscriptBuffer = "";
+    };
+
+    this.recognition.onresult = (event) => {
+      let interim = "";
+      let finalText = "";
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+        else interim += event.results[i][0].transcript;
+      }
+
+      const cleanedFinal = finalText.trim();
+      if (cleanedFinal) {
+        this.voiceTranscriptBuffer += (this.voiceTranscriptBuffer ? " " : "") + cleanedFinal;
+      }
+      const interimText = interim.trim();
+      const display = [this.voiceTranscriptBuffer, interimText].filter(Boolean).join(" ");
+      if (this.currentUserBubble) {
+        this.currentUserBubble.innerText = display || "...";
+        this._scrollToBottom();
+      }
+    };
+
+    this.recognition.onerror = (event) => {
+      if (event.error === "not-allowed") this._stopVoiceTimer();
+    };
+  }
+
+  async _handleUserVoiceInput(text) {
+    if (!text?.trim()) return;
+    this._fadeHomePrompt();
+
+    this.messages.push({ role: "user", content: text });
+    this.chatContents.push({ role: "user", parts: [{ text }] });
+
+    try {
+      const aiBubble = this._appendChatBubble("model", "Thinking...");
+      this._syncLiveReplyUI();
+      const replyText = await this._fetchChatReply(this.chatContents);
+
+      if (replyText) {
+        this.messages.push({ role: "model", content: replyText });
+        this.chatContents.push({ role: "model", parts: [{ text: replyText }] });
+        this._streamRealReply(replyText, aiBubble);
+      } else if (aiBubble) {
+        aiBubble.innerText = "...";
+      }
+    } catch (err) {
+      console.error("Chat failed", err);
+      this._appendChatBubble("model", "Connection lost.");
+    }
+  }
+
+  _streamRealReply(text, targetBubble) {
+    if (!targetBubble) return;
+    let index = 0;
+    this._clearMockStream({ clearText: false });
+
+    this.mockStreamInterval = setInterval(() => {
+      index++;
+      targetBubble.innerText = text.slice(0, index);
+      this._scrollToBottom();
+      if (index >= text.length) {
+        clearInterval(this.mockStreamInterval);
+        this.mockStreamInterval = null;
+      }
+    }, 40);
+  }
+
   _openFilePicker() {
     if (this.saveInFlight || this.blockerActive) return;
     const { fileInput } = this.dom;
@@ -788,7 +915,7 @@ export class App {
     if (this.saveInFlight || this.blockerActive) return;
     if (!this._hasSessionImage()) return;
     const hasOpeningLine = this.messages.some(
-      (msg) => msg && msg.role === "assistant" && typeof msg.content === "string" && msg.content.trim().length > 0
+      (msg) => msg && msg.role === "model" && typeof msg.content === "string" && msg.content.trim().length > 0
     );
     if (!hasOpeningLine) return;
 
@@ -911,7 +1038,10 @@ export class App {
   }
 
   _getTranscriptForSave() {
-    return this.liveReplyText?.trim() || "";
+    if (!this.messages || this.messages.length === 0) return "";
+    return this.messages
+      .map((msg) => `${msg.role === "user" ? "User" : "Afterglow"}: ${msg.content}`)
+      .join("\n");
   }
 
   _createMockDiaryCard({ createdAt, transcript }) {
@@ -944,13 +1074,17 @@ export class App {
       nextQuestions = nextQuestions.slice(0, 3);
     }
     this.analysisQuestions = nextQuestions;
+  }
+
+  _fadeHomePrompt() {
     const { homePrompt } = this.dom;
-    if (!homePrompt) return;
-    if (!nextQuestions.length) {
-      homePrompt.textContent = this.defaultHomePrompt;
-      return;
-    }
-    homePrompt.textContent = nextQuestions.join(" / ");
+    if (!homePrompt || homePrompt.style.display === "none") return;
+    homePrompt.style.opacity = "0";
+    window.setTimeout(() => {
+      if (!homePrompt) return;
+      homePrompt.style.display = "none";
+      homePrompt.textContent = "";
+    }, 500);
   }
 
   async _getImageAnalysis(file) {
@@ -998,9 +1132,16 @@ export class App {
 
   _setOpeningLineFromAnalysis(analysis) {
     const line = this._buildOpeningLine(analysis);
-    this.messages = [{ role: "assistant", content: line }];
-    this.chatContents = [{ role: "assistant", parts: [{ text: line }] }];
-    this._setLiveReplyText(line);
+    this.messages = [{ role: "model", content: line }];
+    this.chatContents = [{ role: "model", parts: [{ text: line }] }];
+    this._appendChatBubble("model", line);
+    const { homePrompt } = this.dom;
+    if (homePrompt) {
+      homePrompt.textContent = line;
+      homePrompt.style.display = "block";
+      homePrompt.style.opacity = "1";
+    }
+    this._syncLiveReplyUI();
     return line;
   }
 
@@ -1291,7 +1432,7 @@ export class App {
     const isHome = this.state?.mode === "home";
     const hasImage = this._hasSessionImage();
     const hasOpeningLine = this.messages.some(
-      (msg) => msg && msg.role === "assistant" && typeof msg.content === "string" && msg.content.trim().length > 0
+      (msg) => msg && msg.role === "model" && typeof msg.content === "string" && msg.content.trim().length > 0
     );
     const canUseMic = isHome && hasImage && !this.saveInFlight && !this.blockerActive;
     const canSave = canUseMic && hasOpeningLine;
@@ -1313,9 +1454,11 @@ export class App {
     }
 
     if (homePrompt) {
-      const showPrompt = isHome && (!hasImage || (hasImage && this.analysisQuestions.length > 0));
+      const hasPromptText = Boolean(homePrompt.textContent && homePrompt.textContent.trim().length > 0);
+      const showPrompt = isHome && hasImage && hasPromptText;
       if (this._hudCache.promptVisible !== showPrompt) {
         homePrompt.style.display = showPrompt ? "block" : "none";
+        homePrompt.style.opacity = showPrompt ? "1" : "0";
         this._hudCache.promptVisible = showPrompt;
       }
     }
@@ -1341,13 +1484,38 @@ export class App {
   _toggleVoiceTimer() {
     if (this.saveInFlight || this.blockerActive) return;
     if (!this._hasSessionImage()) return;
-    if (this.voiceTimerRunning) {
-      this._stopVoiceTimer();
-      this._startMockAssistantStream();
+    if (!this.recognition) {
+      alert("Not supported");
       return;
     }
-    this._clearMockStream({ clearText: true });
-    this._startVoiceTimer();
+
+    if (this.voiceTimerRunning) {
+      this.voiceTimerRunning = false;
+      this.voiceCommitPending = true;
+      this.recognition.stop();
+    } else {
+      this.voiceTimerRunning = true;
+      this.voiceCommitPending = false;
+      this._fadeHomePrompt();
+      this.voiceTranscriptBuffer = "";
+      if (this.currentUserBubble) {
+        this.currentUserBubble.remove();
+      }
+      this.currentUserBubble = this._appendChatBubble("user", "...");
+      this.currentUserBubble?.classList.add("pending");
+      this.voiceTimerSeconds = 0;
+      this._updateVoiceTimerLabel();
+      try {
+        this.recognition.start();
+      } catch (err) {
+        this.voiceTimerRunning = false;
+        this.voiceCommitPending = false;
+        if (this.currentUserBubble) {
+          this.currentUserBubble.remove();
+          this.currentUserBubble = null;
+        }
+      }
+    }
   }
 
   _startVoiceTimer() {
@@ -1362,17 +1530,25 @@ export class App {
   }
 
   _stopVoiceTimer({ reset = false } = {}) {
+    this.voiceTimerRunning = false;
+    this.voiceCommitPending = false;
+    if (this.recognition) this.recognition.stop();
+    if (this.mockStreamInterval) {
+      clearInterval(this.mockStreamInterval);
+      this.mockStreamInterval = null;
+    }
     if (this.voiceTimerInterval) {
       clearInterval(this.voiceTimerInterval);
       this.voiceTimerInterval = null;
     }
-    this.voiceTimerRunning = false;
-    if (reset) {
-      this.voiceTimerSeconds = 0;
+    if (this.currentUserBubble) {
+      this.currentUserBubble.remove();
+      this.currentUserBubble = null;
     }
+    this.voiceTranscriptBuffer = "";
     this._setMicActiveState(false);
+    if (reset) this.voiceTimerSeconds = 0;
     this._updateVoiceTimerLabel();
-    this._syncLiveReplyUI();
   }
 
   _resetHomeDraftState({ resetMessages = false } = {}) {
@@ -1381,6 +1557,16 @@ export class App {
     if (resetMessages) this.messages = [];
     this.chatContents = [];
     this.analysisQuestions = [];
+    const { homePrompt } = this.dom;
+    if (homePrompt) {
+      homePrompt.textContent = "";
+      homePrompt.style.display = "none";
+      homePrompt.style.opacity = "0";
+    }
+    const { chatStream } = this.dom;
+    if (chatStream) chatStream.innerHTML = "";
+    this.currentUserBubble = null;
+    this.liveReplyText = "";
     this._setHomePromptQuestions([], { useFallback: false });
   }
 
@@ -1392,10 +1578,39 @@ export class App {
     this._markHudDirty();
   }
 
+  _appendChatBubble(role, text = "") {
+    const { chatStream } = this.dom;
+    if (!chatStream) return null;
+    const bubble = document.createElement("div");
+    bubble.className = `af-chat-bubble ${role}`;
+    bubble.innerText = text;
+    chatStream.appendChild(bubble);
+    this._scrollToBottom();
+    return bubble;
+  }
+
+  _scrollToBottom() {
+    const { chatStream } = this.dom;
+    if (chatStream) chatStream.scrollTop = chatStream.scrollHeight;
+  }
+
   _setLiveReplyText(text) {
+    const { chatStream } = this.dom;
     const nextText = typeof text === "string" ? text : "";
-    if (this.liveReplyText === nextText) return;
     this.liveReplyText = nextText;
+    if (!chatStream || !nextText) {
+      this._markHudDirty();
+      this._syncLiveReplyUI();
+      return;
+    }
+    let lastBubble = chatStream.lastElementChild;
+    if (!lastBubble || !lastBubble.classList.contains("user")) {
+      lastBubble = this._appendChatBubble("user", nextText);
+      lastBubble?.classList.add("pending");
+    } else {
+      lastBubble.innerText = nextText;
+      this._scrollToBottom();
+    }
     this._markHudDirty();
     this._syncLiveReplyUI();
   }
@@ -1446,7 +1661,7 @@ export class App {
       console.warn("Chat request failed; using fallback.", err);
     }
     if (this.state?.mode !== "home") return;
-    this.chatContents.push({ role: "assistant", parts: [{ text: reply }] });
+    this.chatContents.push({ role: "model", parts: [{ text: reply }] });
     let index = 0;
     const step = () => {
       if (this.state?.mode !== "home") {
@@ -1466,24 +1681,18 @@ export class App {
   }
 
   _syncLiveReplyUI() {
-    const { liveReply } = this.dom;
-    if (!liveReply) return;
+    const { chatStream } = this.dom;
+    if (!chatStream) return;
     const isHome = this.state?.mode === "home";
     const hasImage = this._hasSessionImage();
-    const hasText = Boolean(this.liveReplyText && this.liveReplyText.trim().length > 0);
-    const shouldShow = isHome && hasImage && (hasText || this.voiceTimerRunning);
-    const nextText = shouldShow ? (hasText ? this.liveReplyText : "Listening...") : "";
+    const hasBubbles = chatStream.children.length > 0;
+    const shouldShow = isHome && hasImage && (hasBubbles || this.voiceTimerRunning);
 
     if (this._hudCache.liveReplyVisible !== shouldShow) {
-      liveReply.style.display = shouldShow ? "block" : "none";
-      liveReply.style.pointerEvents = shouldShow ? "auto" : "none";
+      chatStream.style.display = shouldShow ? "flex" : "none";
       this._hudCache.liveReplyVisible = shouldShow;
     }
-    if (this._hudCache.liveReplyText !== nextText) {
-      liveReply.textContent = nextText;
-      this._hudCache.liveReplyText = nextText;
-      if (shouldShow) liveReply.scrollTop = liveReply.scrollHeight;
-    }
+    if (shouldShow) this._scrollToBottom();
   }
 
   _setMaterialSeed(material, id) {

@@ -34,7 +34,7 @@ export function getDom() {
     voiceTimer: byId("af-voice-timer"),
     saveMemoryBtn: byId("af-save-memory"),
     closeVoiceBtn: byId("af-close-voice"),
-    liveReply: byId("af-live-reply"),
+    chatStream: byId("af-chat-stream"),
 
     navInfo: document.querySelector('[data-action="open-info"]'),
     infoPanel: byId("af-info-panel"),
