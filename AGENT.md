@@ -28,14 +28,14 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 - User uploads an image; it becomes the particle texture.
 - Saved memories persist locally via IndexedDB (thumb + render blobs with lazy hi-res load); hall navigation works across refresh.
 - UI overlays include a black void background, top navbar, Home HUD (agent pill + voice controls + live reply), and INFO panel. Inspect/rotate uses OrbitControls (rotate only, no pan/zoom).
-- No AI chat/summarization yet.
+- AI endpoints are wired via `server/` for analyze/chat/diary with frontend fallbacks; UI smoke tests AC3-AC5 pending.
 
 ---
 ## 2) Runbook
-- Node: recommended >= 18 (Vite 5 baseline).
+- Node: frontend recommended >= 18 (Vite 5 baseline); backend recommended >= 20 (@google/genai).
 - Package manager: npm.
 - Commands: `npm install`, `npm run dev`, `npm run build`, `npm run preview`.
-- Backend: `cd server`, `npm install`, `npm run start` (Express on 8787).
+- Backend: `cd server`, `npm install`, `npm start` (Express on 8787).
 
 ---
 ## 3) Environment & Inputs
@@ -45,7 +45,7 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 
 ---
 ## 4) Repo Map
-- `index.html` — static shell, DOM IDs, loads `/src/main.js`; includes top navbar overlay, Home HUD (agent pill + voice controls + live reply), and INFO panel.
+- `index.html` — static shell, DOM IDs, loads `/src/main.js`; includes top navbar overlay, Home HUD (agent pill + voice controls + live reply), INFO panel, and Diary Modal.
 - `src/main.js` — boots the app by instantiating `App`.
 - `src/app.js` — scene setup, render loop, UI bindings (upload, save, hall navigation), persistence wiring, OrbitControls inspect.
 - `src/dom.js` — DOM queries for controls.
@@ -62,7 +62,7 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 ---
 ## 5) Entry Points & Behavior
 - `index.html` defines required elements/IDs: `#canvas-container`, `#fileInput`, `#enter-hall-btn`, `#back-btn`, `#prev-zone`, `#next-zone`, sliders, etc.
-- Overlay UI includes a top navbar (brand/links/icons), Home-only HUD (`#af-hud`, `#af-agent-pill`, `#af-home-voice`, `#af-home-prompt`, `#af-live-reply`, `#af-mic-btn`, `#af-voice-timer`, `#af-save-memory`, `#af-close-voice`), INFO panel (`#af-info-panel`, `#af-info-close`, `#af-info-memno`, `#af-info-empty`, `#af-info-diary`), landing gate (`#af-landing`, `#af-landing-upload`), and save blocker (`#af-save-blocker`, `#af-blocker-text`). All app UI is wrapped in `#af-app-shell`. INFO opens via `[data-action="open-info"]`. Page visibility is controlled by body classes (`mode-landing`, `mode-home`, `mode-gallery`): landing hides the app shell, home/gallery show it. `body.is-blocked` disables all app-shell pointer events while the blocker is visible. `#af-hud` keeps `pointer-events:none` while interactive elements use `pointer-events:auto`. CSS uses `--af-nav-offset` to offset top-aligned controls.
+- Overlay UI includes a top navbar (brand/links/icons), Home-only HUD (`#af-hud`, `#af-agent-pill`, `#af-home-voice`, `#af-home-prompt`, `#af-live-reply`, `#af-mic-btn`, `#af-voice-timer`, `#af-save-memory`, `#af-close-voice`), INFO panel (`#af-info-panel`, `#af-info-close`, `#af-info-memno`, `#af-info-empty`, `#af-info-diary`), Diary Modal (`#af-diary-modal`) that shows the generated memory card after save (includes `#af-modal-date`, `#af-modal-title`, `#af-modal-content`, `#af-modal-tags`, `#af-modal-close`), landing gate (`#af-landing`, `#af-landing-upload`), and save blocker (`#af-save-blocker`, `#af-blocker-text`). Closing the diary modal (`#af-modal-close` or Escape) triggers the transition to Hall. All app UI is wrapped in `#af-app-shell`. INFO opens via `[data-action="open-info"]`. Page visibility is controlled by body classes (`mode-landing`, `mode-home`, `mode-gallery`): landing hides the app shell, home/gallery show it. `body.is-blocked` disables all app-shell pointer events while the blocker is visible. `#af-hud` keeps `pointer-events:none` while interactive elements use `pointer-events:auto`. CSS uses `--af-nav-offset` to offset top-aligned controls.
 - INFO panel content is memory-specific: it reads `diaryCard`/`transcript` from the selected memory (`state.memories[galleryIndex].id`), while the "MEM 01" label is display-only (`index + 1`).
 - Render mode toggle IDs: `#af-render-toggle`, `#af-render-kolam`, `#af-render-halo`, `#af-render-layered`. LocalStorage key `afterglow_render_mode` stores the current mode (`kolam`/`halo`/`layered`).
 - Hall ring tuning sliders (TEMP): `#af-ring-radius`, `#af-ring-depth`, `#af-ring-angle`, `#af-hall-fov` in the settings panel; localStorage keys `afterglow_ring_radius`, `afterglow_ring_depth`, `afterglow_ring_angle`, `afterglow_hall_fov`.
@@ -73,7 +73,7 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
   - Builds Three.js scene, editor particles, shader uniforms.
   - Upload applies processed render texture to the editor and calls `/api/analyze-image` (multipart `image`) for caption/questions; Home shows the opening line in `#af-live-reply` and questions in `#af-home-prompt` (falls back to mock analysis on failure).
   - Chat sends `contents[]` to `/api/chat` and streams the reply into `#af-live-reply` (falls back to mock reply on failure).
-  - Save Memory calls `/api/generate-diary` with `transcriptText`/`dateISO`, maps to `diaryCard`, then persists a single memory record (thumb + render blobs + transcript + diaryCard) and lays out gallery (newest-first).
+  - Save Memory calls `/api/generate-diary` with `transcriptText`/`dateISO`, maps to `diaryCard`, persists a single memory record (thumb + render blobs + transcript + diaryCard), displays the Diary Modal (`#af-diary-modal`) with the new data, and waits for user dismissal to enter Hall.
   - Enter/exit hall toggles visibility; Hall uses a 5-item ring carousel (center ±2) with arc layout/scale/rotation and wrap-around nav; only those 5 are visible; high-res render loads lazily for the selected memory. Hall memory opacity is driven per-offset for a translucent "ghost film" look.
   - Inspect/rotate via OrbitControls on the canvas (mouse/touch drag), damping on; pan/zoom disabled. Wheel still adjusts `viewDistance` and syncs OrbitControls radius.
 
@@ -85,7 +85,7 @@ After any non-trivial change, run these:
 2) Upload: choose JPG/PNG → particles update to the image; no crashes.
 3) Controls: move sliders → visual response is immediate; no console spam.
 4) Inspect drag: drag on canvas (mouse or one-finger touch) → camera orbits smoothly with damping; UI overlays remain clickable.
-5) Save Memory + Hall: save a memory, enter hall, navigate prev/next → saved items render and animate independently.
+5) Save Memory + Hall: save a memory → verify Diary Modal appears → close modal → enter hall, navigate prev/next → saved items render and animate independently.
 6) Refresh persistence: save 3 memories, refresh → all 3 remain in hall/gallery; navigation works; no fatal errors.
 7) Lazy hi-res: after entering hall, navigating to a memory upgrades its texture to the render blob without freezing UI.
 
@@ -95,6 +95,7 @@ After any non-trivial change, run these:
 - Restore flow: loads metadata, then thumb blobs for initial gallery; render blobs load lazily when a memory becomes active.
 - Corrupted/missing assets are skipped with warnings; app continues.
 - UI overlays: black background, top navbar, Home HUD (agent pill + voice controls + live reply), INFO panel; inspect rotation via OrbitControls (rotate only, no pan/zoom).
+- Backend API server on port 8787 provides `/api/analyze-image`, `/api/chat`, `/api/generate-diary`; frontend uses these with fallbacks to local mocks.
 - No automated tests or CI.
 
 ---
@@ -108,9 +109,12 @@ After any non-trivial change, run these:
 
 ---
 ## 9) Backlog (prioritized, acceptance criteria)
-- P0: Inspect UI polish. Acceptance: navbar/mic overlays remain functional; OrbitControls inspect works on mouse/touch with damping; background stays pure black; `npm run build` passes.
-- P1: Native/mobile storage provider parity. Acceptance: implement native provider stub (Capacitor-ready) with same schemaVersion and blob separation; documented in AGENT/README; web still works.
-- P2: Chat/summary stub. Acceptance: local chat UI attaches messages to current memory; stub summary string; no network by default; AGENT/README updated.
+- P0: UI smoke tests AC3-AC5 (upload/chat/save with live API). Acceptance: flows complete without errors.
+- P1: Diary preview card UI. Acceptance: generated diary summary is visible in the UI before save.
+- P2: Performance cleanup. Acceptance: intervals/RAF are stopped on mode switch; no lingering timers.
+- P3: Optional dev proxy for `/api/*`. Acceptance: no CORS friction in local dev.
+- P4: Cost control. Acceptance: send recent N turns + summary to limit tokens.
+- P5: Native/mobile storage provider parity. Acceptance: implement native provider stub (Capacitor-ready) with same schemaVersion and blob separation; documented in AGENT/README; web still works.
 
 ---
 ## 10) Do-not-touch (hard constraints)
@@ -123,7 +127,7 @@ After any non-trivial change, run these:
 
 ---
 ## 11) Assumptions
-- Node >=18 needed for Vite 5 smoothness.
+- Node >=18 needed for Vite 5 smoothness; backend Node >=20 for Gemini SDK.
 - Local-only storage is acceptable for now; no cloud sync.
 - Images can be safely downscaled to 1536px render / 512px thumb without breaking UX.
 

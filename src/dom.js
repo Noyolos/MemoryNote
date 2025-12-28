@@ -49,6 +49,18 @@ export function getDom() {
     diarySummary: byId("af-diary-summary"),
     diaryTranscript: byId("af-diary-transcript"),
 
+    diaryModal: byId("af-diary-modal"),
+    diaryModalDate: byId("af-modal-date"),
+    diaryModalTime: byId("af-modal-time"),
+    diaryModalMood: byId("af-modal-mood"),
+    diaryModalTitle: byId("af-modal-title"),
+    diaryModalSubtitle: byId("af-modal-subtitle"),
+    diaryModalContent: byId("af-modal-content"),
+    diaryModalAiText: byId("af-modal-ai-text"),
+    diaryModalTags: byId("af-modal-tags"),
+    diaryModalClose: byId("af-modal-close"),
+    diaryModalShare: byId("af-modal-share"),
+
     landingRoot: byId("af-landing"),
     landingUploadBtn: byId("af-landing-upload"),
     blocker: byId("af-save-blocker"),

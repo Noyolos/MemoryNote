@@ -33,3 +33,11 @@ Required workflow:
 
 ## Render mode switching
 - setRenderMode updates uniforms only via materialRegistry; do not allocate new materials or textures on toggle.
+
+## Progress
+- Backend: added `server/` Express API on port 8787 with endpoints `/api/analyze-image`, `/api/chat`, `/api/generate-diary` using Gemini structured JSON output.
+- Frontend: wired upload/chat/diary to the API with fallbacks to existing mock behavior and kept typing stream.
+- UI: Home prompt now surfaces 2-3 analysis questions without new DOM IDs.
+- Docs: updated `AGENT.md` + `README.md`; `.gitignore` now excludes `.env` and `server/.env`.
+- Verification: backend endpoints curl-tested (200 OK); frontend UI AC3-AC5 pending.
+

@@ -343,6 +343,9 @@ export class App {
       liveReplyText: null,
       timerLabel: null,
     };
+    this.diaryModalOpen = false;
+    this.diaryModalData = null;
+    this.shareResetTimer = null;
 
     this.settings = { ...DEFAULT_SETTINGS };
     this.state = {
@@ -454,6 +457,9 @@ export class App {
       renderLayered,
       hallResetBtn,
       enterHallBtn,
+      diaryModal,
+      diaryModalClose,
+      diaryModalShare,
     } = this.dom;
 
     // Right panel toggle
@@ -474,6 +480,9 @@ export class App {
     stopToggleEvent(renderHalo);
     stopToggleEvent(renderLayered);
     stopToggleEvent(hallResetBtn);
+    stopToggleEvent(diaryModal);
+    stopToggleEvent(diaryModalClose);
+    stopToggleEvent(diaryModalShare);
 
     renderKolam?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -490,6 +499,14 @@ export class App {
     hallResetBtn?.addEventListener("click", (e) => {
       e.stopPropagation();
       this._resetHallViewParams();
+    });
+    diaryModalClose?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._dismissDiaryModal();
+    });
+    diaryModalShare?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._shareDiaryModal();
     });
 
     const bind = (key, uniformKey, { isPixel = false } = {}) => {
@@ -657,6 +674,14 @@ export class App {
       this.mouseY = (e.clientY - window.innerHeight / 2) * 0.0005;
     });
 
+    document.addEventListener("keydown", (e) => {
+      if (!this.diaryModalOpen) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        this._dismissDiaryModal();
+      }
+    });
+
     // resize
     window.addEventListener("resize", () => {
       this.camera.aspect = window.innerWidth / window.innerHeight;
@@ -720,7 +745,7 @@ export class App {
     const { loading } = this.dom;
     if (!file) return;
     if (this.saveInFlight || this.blockerActive) return;
-    this._setSaveBlockerVisible(true, "Analyzing image…");
+    this._setSaveBlockerVisible(true, "Analyzing image...");
     const analysisPromise = this._getImageAnalysis(file);
     if (loading) loading.style.opacity = 1;
     try {
@@ -774,8 +799,10 @@ export class App {
     this._clearMockStream({ clearText: false });
 
     const transcript = this._getTranscriptForSave();
+    let modalShown = false;
     try {
-      const diaryCard = await this._getDiaryCardForSave(transcript);
+      const diaryResult = await this._getDiaryResultForSave(transcript);
+      const diaryCard = diaryResult?.diaryCard;
       if (!diaryCard) return;
       if (!this.currentSource?.render?.blob || !this.currentSource?.thumb?.blob) return;
 
@@ -793,13 +820,21 @@ export class App {
       const memoryMesh = new THREE.Points(this.geometry, material);
       this._setMeshScale(memoryMesh, record.dimensions);
       this._addMemory({ id, record, mesh: memoryMesh, hasHighRes: true, renderLoading: false }, { prepend: true });
-      this._enterHall();
+      this._setSaveBlockerVisible(false);
+      this._presentDiaryModal({
+        diaryCard,
+        diaryText: diaryResult?.diaryText || "",
+        highlights: diaryResult?.highlights || [],
+      });
+      modalShown = true;
     } catch (err) {
       console.warn("Failed to save memory", err);
       alert("Could not save memory. Please try again.");
     } finally {
       this.saveInFlight = false;
-      this._setSaveBlockerVisible(false);
+      if (!modalShown) {
+        this._setSaveBlockerVisible(false);
+      }
       this._syncHomeActionState();
     }
   }
@@ -988,9 +1023,10 @@ export class App {
       this.mockDiaryTimer = window.setTimeout(() => {
         this.mockDiaryTimer = null;
         const nextCard = this._createMockDiaryCard({ transcript });
+        const diaryText = nextCard.summary || transcript || DIARY_FALLBACK_SUMMARY;
         const finalize = this.mockDiaryResolve;
         this.mockDiaryResolve = null;
-        if (finalize) finalize(nextCard);
+        if (finalize) finalize({ diaryCard: nextCard, diaryText, highlights: [] });
       }, delay);
     });
   }
@@ -1005,41 +1041,42 @@ export class App {
     return await response.json();
   }
 
-  _mapDiaryResponseToCard(apiResponse, { transcriptText, dateISO }) {
+  _mapDiaryResponseToResult(apiResponse, { transcriptText, dateISO }) {
     const response = apiResponse && typeof apiResponse === "object" ? apiResponse : {};
-    const diaryText = typeof response.diary === "string" ? response.diary.trim() : "";
+    const diaryTextRaw = typeof response.diary === "string" ? response.diary.trim() : "";
     const highlights = Array.isArray(response.highlights)
       ? response.highlights.filter((item) => typeof item === "string" && item.trim().length > 0)
       : [];
-    let summary = diaryText;
-    if (!summary && highlights.length) {
-      summary = highlights.join(" · ").trim();
+    let summarySource = diaryTextRaw;
+    if (!summarySource && highlights.length) {
+      summarySource = highlights.join(" - ").trim();
     }
-    if (!summary) {
-      summary = (transcriptText || "").trim();
+    if (!summarySource) {
+      summarySource = (transcriptText || "").trim();
     }
-    summary = summary.slice(0, 180);
+    let summary = summarySource.slice(0, 180);
     if (!summary) summary = DIARY_FALLBACK_SUMMARY;
-    return {
+    const diaryCard = {
       title: typeof response.title === "string" && response.title ? response.title : "Untitled",
       summary,
       mood: typeof response.mood === "string" ? response.mood : "",
       tags: Array.isArray(response.tags) ? response.tags.filter((tag) => typeof tag === "string") : [],
       dateISO: typeof dateISO === "string" && dateISO ? dateISO : new Date().toISOString(),
     };
+    const diaryText = diaryTextRaw || summarySource || summary;
+    return { diaryCard, diaryText, highlights };
   }
 
-  async _getDiaryCardForSave(transcript) {
+  async _getDiaryResultForSave(transcript) {
     const dateISO = new Date().toISOString();
     try {
       const apiResponse = await this._fetchDiaryResponse({ transcriptText: transcript, dateISO });
-      return this._mapDiaryResponseToCard(apiResponse, { transcriptText: transcript, dateISO });
+      return this._mapDiaryResponseToResult(apiResponse, { transcriptText: transcript, dateISO });
     } catch (err) {
       console.warn("Diary generation failed; using fallback.", err);
       return this._simulateDiaryGeneration({ transcript });
     }
   }
-
   async _deserializeMemory(record) {
     const thumbKey = record.assets?.thumbKey;
     if (!thumbKey) {
@@ -1393,7 +1430,7 @@ export class App {
   async _startMockAssistantStream() {
     if (this.state?.mode !== "home" || !this._hasSessionImage() || this.blockerActive) return;
     this._clearMockStream({ clearText: true });
-    const fallbackReply = "I caught a gentle moment here—soft light, a steady calm, and the feeling of holding onto something tender.";
+    const fallbackReply = "I caught a gentle moment here - soft light, a steady calm, and the feeling of holding onto something tender.";
     const requestId = (this.chatRequestId += 1);
     const userText = this._buildChatUserText();
     if (userText) {
@@ -1495,6 +1532,119 @@ export class App {
     this.state.memories.forEach((mem) => {
       if (mem.mesh?.material?.uniforms?.[key]) mem.mesh.material.uniforms[key].value = value;
     });
+  }
+
+  _presentDiaryModal({ diaryCard, diaryText = "", highlights = [] } = {}) {
+    const {
+      diaryModal,
+      diaryModalDate,
+      diaryModalTime,
+      diaryModalMood,
+      diaryModalTitle,
+      diaryModalSubtitle,
+      diaryModalContent,
+      diaryModalAiText,
+      diaryModalTags,
+    } = this.dom;
+    if (!diaryModal || !diaryCard) {
+      this._enterHall();
+      return;
+    }
+
+    const createdAt = diaryCard.dateISO ? new Date(diaryCard.dateISO) : new Date();
+    const dateLabel = createdAt.toLocaleDateString("en-US", { month: "short", day: "2-digit" }).toUpperCase();
+    const timeLabel = createdAt.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+    const moodText = diaryCard.mood || "Neutral";
+    const fullText = diaryText && diaryText.trim().length > 0 ? diaryText.trim() : diaryCard.summary || "";
+    const insightText = highlights.length ? highlights.join(" - ") : diaryCard.summary || "";
+
+    if (diaryModalDate) diaryModalDate.innerText = dateLabel;
+    if (diaryModalTime) diaryModalTime.innerText = timeLabel;
+    if (diaryModalMood) diaryModalMood.innerText = moodText;
+    if (diaryModalTitle) diaryModalTitle.innerText = diaryCard.title || "Untitled Memory";
+    if (diaryModalSubtitle) diaryModalSubtitle.innerText = "Captured in the Afterglow";
+    if (diaryModalContent) diaryModalContent.innerText = fullText;
+    if (diaryModalAiText) diaryModalAiText.innerText = insightText;
+
+    if (diaryModalTags) {
+      diaryModalTags.innerHTML = "";
+      const tags = Array.isArray(diaryCard.tags) ? diaryCard.tags : [];
+      tags.forEach((tag) => {
+        const span = document.createElement("span");
+        span.className = "af-ai-tag";
+        span.innerText = `#${tag}`;
+        diaryModalTags.appendChild(span);
+      });
+      diaryModalTags.style.display = tags.length ? "flex" : "none";
+    }
+
+    this.diaryModalOpen = true;
+    this.diaryModalData = { diaryCard, diaryText: fullText, highlights };
+    this.blockerActive = true;
+    diaryModal.classList.add("is-visible");
+    diaryModal.setAttribute("aria-hidden", "false");
+    this._syncHomeActionState();
+  }
+
+  _resetDiaryShareLabel() {
+    const { diaryModalShare } = this.dom;
+    const label = diaryModalShare?.querySelector("span");
+    if (!label) return;
+    label.textContent = "Share";
+  }
+
+  _shareDiaryModal() {
+    const { diaryModalShare } = this.dom;
+    const text = this.diaryModalData?.diaryText || "";
+    if (!diaryModalShare || !text) return;
+    const label = diaryModalShare.querySelector("span");
+    if (!label) return;
+
+    const setLabel = (next) => {
+      label.textContent = next;
+      if (this.shareResetTimer) window.clearTimeout(this.shareResetTimer);
+      this.shareResetTimer = window.setTimeout(() => {
+        this._resetDiaryShareLabel();
+      }, 1400);
+    };
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => setLabel("Copied"),
+        () => setLabel("Copy failed")
+      );
+      return;
+    }
+
+    try {
+      window.prompt("Copy diary text:", text);
+      setLabel("Copied");
+    } catch (err) {
+      setLabel("Copy failed");
+    }
+  }
+
+  _dismissDiaryModal() {
+    const { diaryModal } = this.dom;
+    if (!this.diaryModalOpen) return;
+    this.diaryModalOpen = false;
+    this.diaryModalData = null;
+    this.blockerActive = false;
+    if (this.shareResetTimer) {
+      window.clearTimeout(this.shareResetTimer);
+      this.shareResetTimer = null;
+    }
+    this._resetDiaryShareLabel();
+    if (diaryModal) {
+      diaryModal.classList.remove("is-visible");
+      diaryModal.setAttribute("aria-hidden", "true");
+    }
+    this._syncHomeActionState();
+    this._enterHall();
   }
 
   _updateGalleryLayout() {
@@ -1830,3 +1980,4 @@ export class App {
     this.renderer.render(this.scene, this.camera);
   };
 }
+
