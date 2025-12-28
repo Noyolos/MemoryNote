@@ -1134,7 +1134,6 @@ export class App {
     const line = this._buildOpeningLine(analysis);
     this.messages = [{ role: "model", content: line }];
     this.chatContents = [{ role: "model", parts: [{ text: line }] }];
-    this._appendChatBubble("model", line);
     const { homePrompt } = this.dom;
     if (homePrompt) {
       homePrompt.textContent = line;

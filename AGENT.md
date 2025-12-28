@@ -71,7 +71,7 @@ Non-goals (near-term): no social feed, no accounts, local-first preferred, keep 
 - `src/main.js` creates `App` and starts its loop.
 - `App` (`src/app.js`):
   - Builds Three.js scene, editor particles, shader uniforms.
-- Upload applies processed render texture to the editor and calls `/api/analyze-image` (multipart `image`) for caption/questions; Home shows the opening line in `#af-chat-stream` and a cinematic subtitle in `#af-home-prompt` (questions are not rendered; falls back to mock analysis on failure).
+- Upload applies processed render texture to the editor and calls `/api/analyze-image` (multipart `image`) for caption/questions; Home shows the opening line as a cinematic subtitle in `#af-home-prompt` (questions are not rendered; falls back to mock analysis on failure).
 - Chat sends `contents[]` to `/api/chat` and streams the reply into `#af-chat-stream` (falls back to mock reply on failure).
 - Save Memory calls `/api/generate-diary` with `transcriptText`/`dateISO` (transcript assembled from the full chat history), maps to `diaryCard`, persists a single memory record (thumb + render blobs + transcript + diaryCard), displays the Diary Modal (`#af-diary-modal`) with the new data, and waits for user dismissal to enter Hall.
   - Enter/exit hall toggles visibility; Hall uses a 5-item ring carousel (center ±2) with arc layout/scale/rotation and wrap-around nav; only those 5 are visible; high-res render loads lazily for the selected memory. Hall memory opacity is driven per-offset for a translucent "ghost film" look.
