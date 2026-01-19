@@ -1,6 +1,7 @@
 import express from "express";
 import multer from "multer";
 import dotenv from "dotenv";
+import crypto from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GoogleGenAI } from "@google/genai/node";
@@ -94,9 +95,17 @@ const diarySchema = {
 
 app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
   try {
+    const requestId = crypto.randomUUID();
+    const t0 = Date.now();
     if (!req.file) return res.status(400).json({ error: "Missing image" });
+    console.info(
+      `[analyze:${requestId}] recv size=${req.file.size}B type=${req.file.mimetype || "unknown"}`
+    );
     const base64 = req.file.buffer.toString("base64");
     const mimeType = req.file.mimetype || "image/jpeg";
+    const t1 = Date.now();
+    console.info(`[analyze:${requestId}] base64 +${t1 - t0}ms`);
+    const t2 = Date.now();
     const data = await generateStructured({
       systemInstruction:
         "You are an assistant that analyzes a photo and returns a short vibe, a concise caption, and 2-3 reflective questions.",
@@ -108,6 +117,8 @@ app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
       ],
       schema: analyzeSchema,
     });
+    const t3 = Date.now();
+    console.info(`[analyze:${requestId}] model +${t3 - t2}ms total=${t3 - t0}ms`);
     res.json({
       vibe: typeof data.vibe === "string" ? data.vibe : "",
       caption: typeof data.caption === "string" ? data.caption : "",

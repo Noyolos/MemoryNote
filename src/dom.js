@@ -28,13 +28,16 @@ export function getDom() {
     memoryCount: byId("memory-count"),
 
     agentPill: byId("af-agent-pill"),
+    centerStage: byId("af-center-stage"),
+    stageStack: byId("af-stage-stack"),
+    typingIndicator: byId("af-typing-indicator"),
     homeVoice: byId("af-home-voice"),
     homePrompt: byId("af-home-prompt"),
+    userBubble: byId("af-user-bubble"),
     micBtn: byId("af-mic-btn"),
     voiceTimer: byId("af-voice-timer"),
     saveMemoryBtn: byId("af-save-memory"),
     closeVoiceBtn: byId("af-close-voice"),
-    chatStream: byId("af-chat-stream"),
 
     navInfo: document.querySelector('[data-action="open-info"]'),
     infoPanel: byId("af-info-panel"),

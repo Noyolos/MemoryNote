@@ -272,10 +272,6 @@
             pointer-events: none;
         }
         #af-agent-pill {
-            position: absolute;
-            top: calc(var(--af-nav-offset, 56px) + 8px);
-            left: 50%;
-            transform: translateX(-50%);
             display: none;
             align-items: center;
             gap: 8px;
@@ -288,6 +284,7 @@
             letter-spacing: 1px;
             cursor: pointer;
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+            pointer-events: auto;
         }
         .af-agent-dot {
             width: 8px;
@@ -299,50 +296,116 @@
         .af-agent-name { font-weight: 600; }
         #af-home-voice {
             position: absolute;
-            left: 50%;
+            left: 0;
+            right: 0;
             bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
-            transform: translateX(-50%);
             display: none;
             align-items: center;
             flex-direction: column;
             gap: 12px;
         }
-        #af-home-prompt {
+        #af-center-stage {
             position: fixed;
-            bottom: 240px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 100;
-            width: fit-content;
-            min-width: 50vw;
-            max-width: 98vw;
-            white-space: pre-wrap;
-            word-break: break-word;
-            text-align: center;
-            pointer-events: none;
+            inset: 0;
             display: none;
-            background-color: rgba(0, 0, 0, 0.65);
-            padding: 16px 32px;
-            border-radius: 8px;
+            pointer-events: none;
+            z-index: 80;
+        }
+        #af-center-stage .af-center-stage__top {
+            position: absolute;
+            top: 10vh;
+            left: 0;
+            right: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            pointer-events: none;
+        }
+        #af-center-stage .af-center-stage__top #af-agent-pill {
+            pointer-events: auto;
+        }
+        #af-typing-indicator {
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 12px;
+            letter-spacing: 1px;
+            color: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+        }
+        #af-stage-stack {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            padding-bottom: 18vh;
+            width: min(92vw, 960px);
+            pointer-events: none;
+        }
+        .af-bubble {
+            width: fit-content;
+            max-width: min(88vw, 980px);
+            border-radius: 12px;
             font-family: "Songti SC", "SimSun", "STSong", "Times New Roman", serif;
-            font-size: 18px;
             font-weight: 400;
-            line-height: 1.6;
             color: rgba(255, 255, 255, 0.95);
             letter-spacing: 1.5px;
+            text-align: center;
+            white-space: pre-wrap;
+            word-break: break-word;
+            background-color: rgba(0, 0, 0, 0.65);
             backdrop-filter: blur(4px);
             -webkit-backdrop-filter: blur(4px);
             border: 1px solid rgba(255, 255, 255, 0.15);
             box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
-            transition: opacity 0.5s ease;
+            pointer-events: auto;
+            animation: af-bubble-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1);
+            transform-origin: bottom center;
+        }
+        .af-bubble--ai {
+            padding: 18px 32px;
+            font-size: 18px;
+            line-height: 1.7;
+            border-color: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+        }
+        .af-bubble--user {
+            max-width: min(70vw, 720px);
+            padding: 12px 18px;
+            font-size: 14px;
+            line-height: 1.6;
+            background-color: rgba(0, 0, 0, 0.55);
+            border-color: rgba(255, 255, 255, 0.22);
+            box-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
+            opacity: 0.9;
+        }
+        @keyframes af-bubble-pop {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         @media (max-width: 600px) {
-            #af-home-prompt {
-                width: 90vw;
-                max-width: 90vw;
+            #af-center-stage .af-center-stage__top {
+                top: 9vh;
+            }
+            #af-stage-stack {
+                width: 92vw;
+                padding-bottom: 20vh;
+            }
+            .af-bubble--ai {
+                max-width: 92vw;
+                padding: 14px 22px;
                 font-size: 16px;
-                bottom: 200px;
-                padding: 12px 20px;
+            }
+            .af-bubble--user {
+                max-width: 82vw;
+                padding: 10px 16px;
+                font-size: 13px;
             }
         }
         .af-mic {
@@ -450,22 +513,6 @@
         #af-home-voice,
         #af-home-voice * {
             pointer-events: auto;
-        }
-        #af-live-reply {
-            display: none;
-            pointer-events: none;
-            max-width: min(520px, 90vw);
-            max-height: 140px;
-            overflow-y: auto;
-            padding: 10px 14px;
-            border-radius: 12px;
-            background: rgba(0, 0, 0, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            font-size: 12px;
-            line-height: 1.4;
-            text-align: center;
-            letter-spacing: 0.2px;
-            box-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
         }
         #af-save-blocker {
             position: fixed;
@@ -921,72 +968,22 @@
             100% { transform: scale(1.1); }
         }
 
-        /* --- Chat Stream UI (Cinematic Unification) --- */
-        #af-chat-stream {
-            position: fixed;
-            bottom: 110px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 95%;
-            max-width: 800px;
-            max-height: 40vh;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            overflow-y: auto;
-            padding: 10px;
-            z-index: 500;
-            pointer-events: none;
-            scrollbar-width: none;
-            -ms-overflow-style: none;
-            justify-content: flex-end;
-            mask-image: linear-gradient(to bottom, transparent, black 15%);
-            -webkit-mask-image: linear-gradient(to bottom, transparent, black 15%);
-        }
-        #af-chat-stream::-webkit-scrollbar { display: none; }
-
-        .af-chat-bubble {
-            padding: 14px 24px;
-            border-radius: 8px;
-            font-family: "Songti SC", "SimSun", "STSong", "Times New Roman", serif;
-            font-size: 16px;
-            font-weight: 400;
-            line-height: 1.6;
-            color: rgba(255, 255, 255, 0.95);
-            letter-spacing: 1px;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
-            background-color: rgba(0, 0, 0, 0.65);
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-            width: fit-content;
-            max-width: 85%;
-            word-wrap: break-word;
-            pointer-events: auto;
-            animation: af-bubble-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1);
-            transform-origin: bottom center;
-        }
-        .af-chat-bubble.user {
-            align-self: flex-end;
-            text-align: right;
-            border-color: rgba(255, 255, 255, 0.3);
-        }
-        .af-chat-bubble.model {
-            align-self: flex-start;
-            text-align: left;
-        }
-        .af-chat-bubble.pending {
-            opacity: 0.7;
-            border: 1px dashed rgba(255, 255, 255, 0.2);
-        }
-        @keyframes af-bubble-pop {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
     </style>
 </head>
 <body>
+    <div id="af-center-stage" class="af-center-stage">
+        <div class="af-center-stage__top">
+            <div id="af-agent-pill" class="af-agent-pill" role="button" aria-label="Agent selector">
+                <span class="af-agent-dot" aria-hidden="true"></span>
+                <span class="af-agent-name">Gemini</span>
+            </div>
+            <div id="af-typing-indicator" class="af-typing" hidden>对方正在输入…</div>
+        </div>
+        <div id="af-stage-stack" class="af-stage-stack">
+            <div id="af-home-prompt" class="af-bubble af-bubble--ai" hidden>Use WORKSTATION -> UPLOAD to begin</div>
+            <div id="af-user-bubble" class="af-bubble af-bubble--user" hidden></div>
+        </div>
+    </div>
     <div id="af-app-shell">
     <div class="af-nav">
         <div class="af-nav__brand">AFTERGLOW</div>
@@ -1127,13 +1124,7 @@
         </div>
 
         <div id="af-hud">
-            <div id="af-agent-pill" class="af-agent-pill" role="button" aria-label="Agent selector">
-                <span class="af-agent-dot" aria-hidden="true"></span>
-                <span class="af-agent-name">Gemini</span>
-            </div>
             <div id="af-home-voice" class="af-home-voice">
-                <div id="af-home-prompt" class="af-home-prompt">Use WORKSTATION -> UPLOAD to begin</div>
-                <div id="af-chat-stream"></div>
                 <button id="af-mic-btn" class="af-mic" type="button" aria-label="Mic">
                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z"/>
