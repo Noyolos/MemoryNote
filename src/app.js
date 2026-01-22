@@ -21,7 +21,17 @@ const IMAGE_QUALITY = {
   renderJpeg: 0.85,
 };
 
-const API_BASE = "http://localhost:8787";
+const RAW_API_BASE = typeof import.meta !== "undefined" ? import.meta.env?.VITE_API_BASE : "";
+const API_BASE =
+  typeof RAW_API_BASE === "string" && RAW_API_BASE.trim()
+    ? RAW_API_BASE.trim().replace(/\/+$/, "")
+    : "";
+
+function buildApiUrl(path) {
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  if (!API_BASE) return suffix;
+  return `${API_BASE}${suffix}`;
+}
 const HOME_PROMPT_DEFAULT = "";
 const HOME_PROMPT_FALLBACK_QUESTIONS = [];
 const DIARY_FALLBACK_SUMMARY = "A quiet moment, held in the light and motion of the archive.";
@@ -1267,7 +1277,7 @@ export class App {
       trace.t2 = performance.now();
       console.info(`[analysis:${trace.id}] t2_fetch_start +${Math.round(trace.t2 - trace.t0)}ms`);
     }
-    const response = await fetch(`${API_BASE}/api/analyze-image`, { method: "POST", body: formData });
+    const response = await fetch(buildApiUrl("/api/analyze-image"), { method: "POST", body: formData });
     if (trace) {
       trace.t3 = performance.now();
       const ttfb = Math.round(trace.t3 - trace.t2);
@@ -1347,7 +1357,7 @@ export class App {
   }
 
   async _fetchDiaryResponse({ transcriptText, dateISO }) {
-    const response = await fetch(`${API_BASE}/api/generate-diary`, {
+    const response = await fetch(buildApiUrl("/api/generate-diary"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ transcriptText, dateISO }),
@@ -1769,7 +1779,7 @@ export class App {
   }
 
   async _fetchChatReply(contents) {
-    const response = await fetch(`${API_BASE}/api/chat`, {
+    const response = await fetch(buildApiUrl("/api/chat"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contents }),

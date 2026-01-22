@@ -4,6 +4,32 @@ const STORE_MEMORIES = "memories";
 const STORE_ASSETS = "assets";
 export const SCHEMA_VERSION = 1;
 
+const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+
+function getCrypto() {
+  if (typeof globalThis !== "undefined" && globalThis.crypto) return globalThis.crypto;
+  if (typeof crypto !== "undefined") return crypto;
+  return null;
+}
+
+function uuidv4() {
+  const cryptoObj = getCrypto();
+  if (!cryptoObj?.getRandomValues) {
+    throw new Error("crypto.getRandomValues is required to generate UUIDs");
+  }
+  const bytes = new Uint8Array(16);
+  cryptoObj.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  return (
+    `${HEX[bytes[0]]}${HEX[bytes[1]]}${HEX[bytes[2]]}${HEX[bytes[3]]}-` +
+    `${HEX[bytes[4]]}${HEX[bytes[5]]}-` +
+    `${HEX[bytes[6]]}${HEX[bytes[7]]}-` +
+    `${HEX[bytes[8]]}${HEX[bytes[9]]}-` +
+    `${HEX[bytes[10]]}${HEX[bytes[11]]}${HEX[bytes[12]]}${HEX[bytes[13]]}${HEX[bytes[14]]}${HEX[bytes[15]]}`
+  );
+}
+
 function openDatabase() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -32,10 +58,11 @@ function promisifyRequest(request) {
 }
 
 export function createMemoryId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
+  const cryptoObj = getCrypto();
+  if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
+    return cryptoObj.randomUUID();
   }
-  return `mem-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  return uuidv4();
 }
 
 export class WebStorageProvider {

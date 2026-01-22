@@ -3,10 +3,10 @@
 ## ADR-001: Canonical Backend
 - **Decision**: Use `memory-particles-v1/server/` as the only valid backend.
 - **Status**: Active.
-- **Context**: Ignore any legacy `server/` folders at the repo root.
+- **Context**: Root `server/` is legacy; do not use. If present, archive/remove it.
 
 ## ADR-002: Cloud Identity (UUID)
-- **Decision**: Use `crypto.randomUUID()` for all IDs (Memories & Assets).
+- **Decision**: Use UUIDv4 from Web Crypto (`crypto.randomUUID()` or `crypto.getRandomValues`) for all IDs (Memories & Assets).
 - **Status**: Active.
 - **Rationale**: Prevents ID collisions when eventually syncing local IndexedDB with a future Cloud DB. Auto-increment IDs are forbidden.
 
