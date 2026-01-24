@@ -108,7 +108,7 @@ app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
     const t2 = Date.now();
     const data = await generateStructured({
       systemInstruction:
-        "You are an assistant that analyzes a photo and returns a short vibe, a concise caption, and 2-3 reflective questions.",
+        "你是照片分析助手，请用中文返回：vibe（氛围词）、caption（简短描述）、questions（2-3 个反思问题）。",
       contents: [
         {
           role: "user",
@@ -136,16 +136,16 @@ app.post("/api/chat", async (req, res) => {
     const contents = Array.isArray(req.body?.contents) ? req.body.contents : null;
     if (!contents) return res.status(400).json({ error: "Missing contents" });
     const data = await generateStructured({
-      systemInstruction: `You are Afterglow, the user's close, empathetic, and observant friend. 
-Your goal is to keep the conversation going and make the user feel heard.
+      systemInstruction: `你是 Afterglow，用户亲密、共情、善于观察的朋友。
+目标是延续对话，让用户感到被理解与陪伴。
 
-Behavior guidelines:
-1. **Be proactive & curious**: If the user sends a photo, exclaim about details. Ask "Where was this?" or "Is it cold?".
-2. **Be warm & playful**: Use a casual, slightly dreamy tone. Use emojis occasionally.
-3. **Show empathy**: If the user mentions loneliness, respond with validation (e.g., "That sounds romantic but a bit lonely...").
-4. **Keep it conversational**: Keep replies to 1-2 friendly sentences.
+行为准则：
+1. 主动好奇：如果用户发送照片，关注细节并追问“这是哪里？”“当时冷吗？”。
+2. 温暖自然：语气随和、略带梦幻，可偶尔使用表情符号。
+3. 共情回应：若用户提到孤独或失落，要先共情再回应。
+4. 保持简短：回复控制在 1-2 句。
 
-Reply in the same language as the user (mainly Chinese).`,
+请始终使用中文回复。`,
       contents,
       schema: chatSchema,
     });

@@ -1,4 +1,4 @@
-import * as THREE from "three";
+﻿import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { getDom } from "./dom.js";
 import { createParticleGeometry } from "./particles.js";
@@ -32,10 +32,13 @@ function buildApiUrl(path) {
   if (!API_BASE) return suffix;
   return `${API_BASE}${suffix}`;
 }
+const AI_ENABLED = true;
+const VOICE_RECOGNITION_LANG = "zh-CN";
+const VOICE_CHINESE_ONLY = true;
+const CHINESE_CHAR_RE = /[\u4e00-\u9fff]/;
 const HOME_PROMPT_DEFAULT = "";
 const HOME_PROMPT_FALLBACK_QUESTIONS = [];
-const DIARY_FALLBACK_SUMMARY = "A quiet moment, held in the light and motion of the archive.";
-
+const DIARY_FALLBACK_SUMMARY = "一个安静的瞬间，被光与流动轻轻收录。";
 
 // Keep defaults close to your prototype
 const DEFAULT_SETTINGS = {
@@ -49,7 +52,7 @@ const DEFAULT_SETTINGS = {
   stableRadius: 0.44,
   brightness: 1.7,
   contrast: 1.3,
-  viewDistance: 1.8,
+  viewDistance: 2.8,
   galleryGap: 2.2,
 };
 
@@ -73,27 +76,12 @@ const CAROUSEL = {
   transitionMs: 420,
 };
 
-const RING_KEYS = {
-  radius: "afterglow_ring_radius",
-  depth: "afterglow_ring_depth",
-  angle: "afterglow_ring_angle",
-};
-const HALL_FOV_KEY = "afterglow_hall_fov";
 const HALL_FOV_DEFAULT = 40;
-const HALL_FOV_LIMITS = { min: 28, max: 60 };
-const HALL_OPACITY_KEY = "afterglow_hall_opacity";
-const HALL_OPACITY_LIMITS = { min: 0.2, max: 1.0 };
 
 const RING_DEFAULTS = {
   radius: CAROUSEL.radius,
   depth: CAROUSEL.depth,
   angle: CAROUSEL.angleStep,
-};
-
-const RING_LIMITS = {
-  radius: { min: 1.5, max: 4.0 },
-  depth: { min: 0.8, max: 6.0 },
-  angle: { min: 0.18, max: 0.6 },
 };
 
 const RENDER_MODE_KEY = "afterglow_render_mode";
@@ -156,6 +144,19 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function filterVoiceText(text) {
+  if (typeof text !== "string") return "";
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  if (!VOICE_CHINESE_ONLY) return trimmed;
+  const filtered = trimmed.replace(
+    /[^\u4e00-\u9fff\u3000-\u303f\uff00-\uffef0-9\s.,!?'"，。！？、：；《》【】（）\-—]/g,
+    ""
+  );
+  const normalized = filtered.replace(/\s+/g, " ").trim();
+  return CHINESE_CHAR_RE.test(normalized) ? normalized : "";
+}
+
 function wrapIndex(index, count) {
   if (count <= 0) return 0;
   return ((index % count) + count) % count;
@@ -172,25 +173,6 @@ function getWrappedOffset(index, center, count) {
 
 function easeInOut(t) {
   return t * t * (3 - 2 * t);
-}
-
-function readStoredNumber(key, fallback, { min = -Infinity, max = Infinity } = {}) {
-  try {
-    const raw = localStorage.getItem(key);
-    const value = parseFloat(raw);
-    if (!Number.isFinite(value)) return fallback;
-    return clamp(value, min, max);
-  } catch (err) {
-    return fallback;
-  }
-}
-
-function writeStoredNumber(key, value) {
-  try {
-    localStorage.setItem(key, String(value));
-  } catch (err) {
-    // ignore storage failures
-  }
 }
 
 function canvasToBlob(canvas, type, quality) {
@@ -321,7 +303,7 @@ function disposeTexture(texture) {
 }
 
 const TYPING_INDICATOR_TEXT = "对方正在输入…";
-const LISTENING_INDICATOR_TEXT = "Listening...";
+const LISTENING_INDICATOR_TEXT = "正在聆听...";
 
 class CenterStageController {
   constructor(dom) {
@@ -507,12 +489,12 @@ export class App {
     this.materialRegistry = new Set();
     this.renderMode = normalizeRenderMode(readRenderMode());
     this.ringSettings = {
-      radius: readStoredNumber(RING_KEYS.radius, RING_DEFAULTS.radius, RING_LIMITS.radius),
-      depth: readStoredNumber(RING_KEYS.depth, RING_DEFAULTS.depth, RING_LIMITS.depth),
-      angle: readStoredNumber(RING_KEYS.angle, RING_DEFAULTS.angle, RING_LIMITS.angle),
+      radius: RING_DEFAULTS.radius,
+      depth: RING_DEFAULTS.depth,
+      angle: RING_DEFAULTS.angle,
     };
-    this.hallFov = readStoredNumber(HALL_FOV_KEY, HALL_FOV_DEFAULT, HALL_FOV_LIMITS);
-    this.hallOpacityBase = readStoredNumber(HALL_OPACITY_KEY, CAROUSEL.opacityBase, HALL_OPACITY_LIMITS);
+    this.hallFov = HALL_FOV_DEFAULT;
+    this.hallOpacityBase = CAROUSEL.opacityBase;
     this.homeSettings = {
       zoom: this.settings.viewDistance,
       yOffset: 0.05,
@@ -595,8 +577,13 @@ export class App {
       effectPanel,
       sliders,
       micBtn,
+      aiWidthSlider,
+      aiWidthValue,
+      aiFontSlider,
+      aiFontValue,
       voiceTimer,
       saveMemoryBtn,
+      archiveBtn,
       closeVoiceBtn,
       landingUploadBtn,
       navInfo,
@@ -718,54 +705,36 @@ export class App {
       if (this.editorGroup) this.editorGroup.position.y = val;
     });
 
-    const bindRing = (sliderKey, settingKey, storageKey) => {
-      const s = sliders[sliderKey];
-      if (!s?.input || !s?.label) return;
-      const limits = RING_LIMITS[settingKey] || { min: -Infinity, max: Infinity };
-      const update = (val, persist = true) => {
-        const rawVal = Number.isFinite(val) ? val : this.ringSettings[settingKey];
-        const nextVal = clamp(rawVal, limits.min, limits.max);
-        this.ringSettings[settingKey] = nextVal;
-        s.label.innerText = nextVal.toFixed(2);
-        if (persist) writeStoredNumber(storageKey, nextVal);
-      };
-      s.input.value = this.ringSettings[settingKey];
-      update(this.ringSettings[settingKey], false);
-      s.input.addEventListener("input", (e) => {
-        const val = parseFloat(e.target.value);
-        update(val);
-      });
-    };
-
-    bindRing("ringRadius", "radius", RING_KEYS.radius);
-    bindRing("ringDepth", "depth", RING_KEYS.depth);
-    bindRing("ringAngle", "angle", RING_KEYS.angle);
-
-    const bindHallFov = () => {
-      const s = sliders.hallFov;
-      if (!s?.input || !s?.label) return;
-      const update = (val, persist = true) => {
-        const rawVal = Number.isFinite(val) ? val : this.hallFov;
-        const nextVal = clamp(rawVal, HALL_FOV_LIMITS.min, HALL_FOV_LIMITS.max);
-        this.hallFov = nextVal;
-        s.label.innerText = Math.round(nextVal).toString();
-        if (persist) writeStoredNumber(HALL_FOV_KEY, nextVal);
-        if (this._isInHall()) this._applyHallCamera(true);
-      };
-      s.input.value = this.hallFov;
-      update(this.hallFov, false);
-      s.input.addEventListener("input", (e) => {
-        const val = parseFloat(e.target.value);
-        update(val);
-      });
-    };
-
-    bindHallFov();
-
     this._updateNavOffset();
     window.addEventListener("resize", () => this._updateNavOffset());
 
     if (voiceTimer) this._updateVoiceTimerLabel();
+
+    const root = document.documentElement;
+    const setAiWidth = (value) => {
+      const width = Math.max(240, Number(value) || 0);
+      const half = Math.round(width / 2);
+      root.style.setProperty("--af-ai-max-width", `${width}px`);
+      root.style.setProperty("--af-ai-half-width", `${half}px`);
+      if (aiWidthValue) aiWidthValue.textContent = `${width}px`;
+    };
+    const setAiFont = (value) => {
+      const size = Math.max(10, Number(value) || 0);
+      root.style.setProperty("--af-ai-font-size", `${size}px`);
+      if (aiFontValue) aiFontValue.textContent = `${size}px`;
+    };
+    if (aiWidthSlider) {
+      setAiWidth(aiWidthSlider.value);
+      aiWidthSlider.addEventListener("input", (e) => {
+        setAiWidth(e.target.value);
+      });
+    }
+    if (aiFontSlider) {
+      setAiFont(aiFontSlider.value);
+      aiFontSlider.addEventListener("input", (e) => {
+        setAiFont(e.target.value);
+      });
+    }
 
     landingUploadBtn?.addEventListener("click", () => {
       this._openFilePicker();
@@ -774,6 +743,9 @@ export class App {
       this._toggleVoiceTimer();
     });
     saveMemoryBtn?.addEventListener("click", () => {
+      this._handleSaveMemory();
+    });
+    archiveBtn?.addEventListener("click", () => {
       this._handleSaveMemory();
     });
     closeVoiceBtn?.addEventListener("click", () => {
@@ -888,7 +860,7 @@ export class App {
     if (!SpeechRecognition) return;
 
     this.recognition = new SpeechRecognition();
-    this.recognition.lang = "en-US";
+    this.recognition.lang = VOICE_RECOGNITION_LANG;
     this.recognition.interimResults = true;
     this.recognition.continuous = false;
 
@@ -940,6 +912,8 @@ export class App {
       const finalText = this.voiceDraft.trim();
       if (shouldCommit && finalText) {
         this._handleUserVoiceInput(finalText);
+      } else if (shouldCommit) {
+        this.stage.showSystem("请用中文描述你的想法。");
       }
       this.voiceInterim = "";
       this._renderVoiceDraft();
@@ -954,11 +928,11 @@ export class App {
         else interim += event.results[i][0].transcript;
       }
 
-      const cleanedFinal = finalText.trim();
+      const cleanedFinal = filterVoiceText(finalText);
       if (cleanedFinal) {
         this.voiceDraft = this.voiceDraft ? `${this.voiceDraft} ${cleanedFinal}` : cleanedFinal;
       }
-      this.voiceInterim = interim.trim();
+      this.voiceInterim = filterVoiceText(interim);
       this._renderVoiceDraft();
     };
 
@@ -985,7 +959,7 @@ export class App {
     try {
       const replyText = await this._fetchChatReply(this.chatContents);
       if (!replyText) {
-        this.stage.showSystem("Connection lost.");
+        this.stage.showSystem("连接失败。");
         return;
       }
       this.messages.push({ role: "model", content: replyText });
@@ -994,7 +968,7 @@ export class App {
       this._streamRealReply(replyText);
     } catch (err) {
       console.error("Chat failed", err);
-      this.stage.showSystem("Connection lost.");
+      this.stage.showSystem("连接失败。");
     }
   }
 
@@ -1261,6 +1235,10 @@ export class App {
   }
 
   async _getImageAnalysis(file, trace) {
+    if (!AI_ENABLED) {
+      const caption = await this._simulateImageAnalysis();
+      return { vibe: "", caption, questions: HOME_PROMPT_FALLBACK_QUESTIONS };
+    }
     try {
       return await this._fetchImageAnalysis(file, trace);
     } catch (err) {
@@ -1303,10 +1281,10 @@ export class App {
 
   _simulateImageAnalysis() {
     const options = [
-      "soft light, a centered subject, and a calm palette",
-      "gentle contrast, a still focal point, and a quiet mood",
-      "warm tones, soft shadows, and an intimate composition",
-      "clean lines, muted color, and a grounded atmosphere",
+      "柔和的光线、居中的主体、安静的色调",
+      "轻微对比、稳定的焦点、静谧的氛围",
+      "温暖的色温、柔和的阴影、亲密的构图",
+      "干净的线条、低饱和的颜色、沉稳的气息",
     ];
     const delay = 1200 + Math.random() * 800;
     const choice = options[Math.floor(Math.random() * options.length)];
@@ -1316,9 +1294,9 @@ export class App {
   }
 
   _buildOpeningLine(analysis) {
-    const raw = analysis ? String(analysis).trim() : "a quiet scene";
+    const raw = analysis ? String(analysis).trim() : "安静的画面";
     const cleaned = raw.replace(/[.!?]+$/, "");
-    return `Noticing ${cleaned}; what does this moment mean to you?`;
+    return `注意到${cleaned}，这一刻对你意味着什么？`;
   }
 
   _setOpeningLineFromAnalysis(analysis) {
@@ -1394,6 +1372,9 @@ export class App {
 
   async _getDiaryResultForSave(transcript) {
     const dateISO = new Date().toISOString();
+    if (!AI_ENABLED) {
+      return this._simulateDiaryGeneration({ transcript });
+    }
     try {
       const apiResponse = await this._fetchDiaryResponse({ transcriptText: transcript, dateISO });
       return this._mapDiaryResponseToResult(apiResponse, { transcriptText: transcript, dateISO });
@@ -1611,7 +1592,7 @@ export class App {
   }
 
   _syncHomeActionState() {
-    const { micBtn, saveMemoryBtn, closeVoiceBtn } = this.dom;
+    const { micBtn, saveMemoryBtn, archiveBtn, closeVoiceBtn } = this.dom;
     const isHome = this.state?.mode === "home";
     const hasImage = this._hasSessionImage();
     const hasOpeningLine = this.messages.some(
@@ -1619,10 +1600,11 @@ export class App {
     );
     const canUseMic = isHome && hasImage && !this.saveInFlight && !this.blockerActive;
     const canSave = canUseMic && hasOpeningLine;
+    const voiceActive = this.voiceTimerRunning || this.isRecognizing;
 
-    const nextMicDisabled = !canUseMic;
+    const nextMicDisabled = !canUseMic && !voiceActive;
     const nextSaveDisabled = !canSave;
-    const nextCloseDisabled = !canUseMic;
+    const nextCloseDisabled = !canUseMic && !voiceActive;
     if (micBtn && this._hudCache.micDisabled !== nextMicDisabled) {
       micBtn.disabled = nextMicDisabled;
       this._hudCache.micDisabled = nextMicDisabled;
@@ -1630,6 +1612,9 @@ export class App {
     if (saveMemoryBtn && this._hudCache.saveDisabled !== nextSaveDisabled) {
       saveMemoryBtn.disabled = nextSaveDisabled;
       this._hudCache.saveDisabled = nextSaveDisabled;
+    }
+    if (archiveBtn) {
+      archiveBtn.disabled = nextSaveDisabled;
     }
     if (closeVoiceBtn && this._hudCache.closeDisabled !== nextCloseDisabled) {
       closeVoiceBtn.disabled = nextCloseDisabled;
@@ -1682,36 +1667,44 @@ export class App {
       blocked: this.blockerActive,
       disabled: this.dom?.micBtn?.disabled,
     });
-    if (this.saveInFlight || this.blockerActive) return;
-    if (!this._hasSessionImage()) return;
-    if (!this.recognition) {
-      alert("Not supported");
+    if (this.voiceTimerRunning || this.isRecognizing) {
+      this.voiceTimerRunning = false;
+      this.voiceCommitPending = true;
+      this.stage.setListening(false);
+      this._setMicActiveState(false);
+      if (this.isRecognizing) {
+        try {
+          this.recognition.stop();
+        } catch (err) {
+          console.warn("[speech] stop failed", err);
+        }
+      }
       return;
     }
 
-    if (this.voiceTimerRunning) {
+    if (this.saveInFlight || this.blockerActive) return;
+    if (!this._hasSessionImage()) return;
+    if (!this.recognition) {
+      alert("当前不支持语音识别");
+      return;
+    }
+
+    this.voiceTimerRunning = true;
+    this.voiceCommitPending = false;
+    this.voiceInterim = "";
+    this._renderVoiceDraft();
+    this.voiceTimerSeconds = 0;
+    this._updateVoiceTimerLabel();
+    this.stage.setListening(true);
+    this._setMicActiveState(true);
+    if (this.isRecognizing) return;
+    try {
+      this.recognition.start();
+    } catch (err) {
       this.voiceTimerRunning = false;
-      this.voiceCommitPending = true;
-      if (this.isRecognizing) {
-        this.recognition.stop();
-      } else {
-        this.stage.setListening(false);
-      }
-    } else {
-      this.voiceTimerRunning = true;
       this.voiceCommitPending = false;
-      this.voiceInterim = "";
-      this._renderVoiceDraft();
-      this.voiceTimerSeconds = 0;
-      this._updateVoiceTimerLabel();
-      if (this.isRecognizing) return;
-      try {
-        this.recognition.start();
-      } catch (err) {
-        this.voiceTimerRunning = false;
-        this.voiceCommitPending = false;
-        this.stage.setListening(false);
-      }
+      this.stage.setListening(false);
+      this._setMicActiveState(false);
     }
   }
 
@@ -1728,7 +1721,13 @@ export class App {
   _stopVoiceTimer({ reset = false, clearDraft = false } = {}) {
     this.voiceTimerRunning = false;
     this.voiceCommitPending = false;
-    if (this.recognition) this.recognition.stop();
+    if (this.recognition && this.isRecognizing) {
+      try {
+        this.recognition.stop();
+      } catch (err) {
+        console.warn("[speech] stop failed", err);
+      }
+    }
     if (this.mockStreamInterval) {
       clearInterval(this.mockStreamInterval);
       this.mockStreamInterval = null;
@@ -1755,7 +1754,10 @@ export class App {
   }
 
   _setMicActiveState(isActive) {
-    const { micBtn } = this.dom;
+    const { micBtn, agentPill } = this.dom;
+    if (agentPill) {
+      agentPill.classList.toggle("is-listening", isActive);
+    }
     if (!micBtn) return;
     micBtn.classList.toggle("is-active", isActive);
     micBtn.setAttribute("aria-pressed", isActive ? "true" : "false");
@@ -1772,13 +1774,14 @@ export class App {
 
   _buildChatUserText() {
     const parts = [];
-    if (this.imageAnalysis) parts.push(`Caption: ${this.imageAnalysis}.`);
-    if (this.analysisQuestions.length) parts.push(`Questions: ${this.analysisQuestions.join(" / ")}.`);
-    parts.push("Share a brief reflection on this moment.");
+    if (this.imageAnalysis) parts.push(`描述：${this.imageAnalysis}。`);
+    if (this.analysisQuestions.length) parts.push(`问题：${this.analysisQuestions.join(" / ")}。`);
+    parts.push("请用中文简短分享这一刻的感受。");
     return parts.join(" ");
   }
 
   async _fetchChatReply(contents) {
+    if (!AI_ENABLED) return "";
     const response = await fetch(buildApiUrl("/api/chat"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1792,7 +1795,7 @@ export class App {
   async _startMockAssistantStream() {
     if (this.state?.mode !== "home" || !this._hasSessionImage() || this.blockerActive) return;
     this._clearMockStream({ clearText: true });
-    const fallbackReply = "I caught a gentle moment here - soft light, a steady calm, and the feeling of holding onto something tender.";
+    const fallbackReply = "我感受到一个温柔的瞬间：光线柔软、气息安稳，像是在轻轻地珍藏一段回忆。";
     const requestId = (this.chatRequestId += 1);
     const userText = this._buildChatUserText();
     if (userText) {
@@ -2126,22 +2129,6 @@ export class App {
     this.hallFov = HALL_FOV_DEFAULT;
     this.hallOpacityBase = CAROUSEL.opacityBase;
 
-    writeStoredNumber(RING_KEYS.radius, this.ringSettings.radius);
-    writeStoredNumber(RING_KEYS.depth, this.ringSettings.depth);
-    writeStoredNumber(RING_KEYS.angle, this.ringSettings.angle);
-    writeStoredNumber(HALL_FOV_KEY, this.hallFov);
-    writeStoredNumber(HALL_OPACITY_KEY, this.hallOpacityBase);
-
-    const sliders = this.dom.sliders || {};
-    if (sliders.ringRadius?.input) sliders.ringRadius.input.value = this.ringSettings.radius;
-    if (sliders.ringRadius?.label) sliders.ringRadius.label.innerText = this.ringSettings.radius.toFixed(2);
-    if (sliders.ringDepth?.input) sliders.ringDepth.input.value = this.ringSettings.depth;
-    if (sliders.ringDepth?.label) sliders.ringDepth.label.innerText = this.ringSettings.depth.toFixed(2);
-    if (sliders.ringAngle?.input) sliders.ringAngle.input.value = this.ringSettings.angle;
-    if (sliders.ringAngle?.label) sliders.ringAngle.label.innerText = this.ringSettings.angle.toFixed(2);
-    if (sliders.hallFov?.input) sliders.hallFov.input.value = this.hallFov;
-    if (sliders.hallFov?.label) sliders.hallFov.label.innerText = Math.round(this.hallFov).toString();
-
     if (this._isInHall()) this._applyHallCamera(true);
   }
 
@@ -2308,4 +2295,5 @@ export class App {
     this.renderer.render(this.scene, this.camera);
   };
 }
+
 

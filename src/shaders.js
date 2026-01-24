@@ -75,7 +75,6 @@ void main() {
         float strength = 1.0 * uDispersion * dispersionFactor;
         pos.x += driftX * strength;
         pos.y += driftY * strength;
-        pos.z += (aRandom - 0.5) * 1.5 * dispersionFactor;
     }
 
     float sizeFade = 1.0;
@@ -84,13 +83,18 @@ void main() {
         sizeFade *= (0.5 + 0.5 * sin(uTime * 5.0 + aRandom * 10.0));
     }
 
+    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+    if (distortedDist > uStableRadius) {
+        mvPosition.z += abs(aRandom - 0.5) * 0.5 * dispersionFactor;
+    }
+
     gl_PointSize = uSize * sizeFade;
-    gl_PointSize *= (1.0 / - (modelViewMatrix * vec4(pos, 1.0)).z);
+    gl_PointSize *= (1.0 / -mvPosition.z);
 
     float raggedEdge = 0.49 + (aRandom * 0.05);
     vVisible = (distortedDist > raggedEdge) ? 0.0 : 1.0;
 
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
 }
 `;
 

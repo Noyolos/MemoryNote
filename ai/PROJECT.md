@@ -26,6 +26,7 @@ npm run dev
 ### Backend (API)
 Canonical Path: `memory-particles-v1/server/` (root `server/` is legacy; do not use).
 ```bash
+# From repo root (memory-particles-v1/)
 cd server
 npm install
 npm run start
@@ -54,7 +55,7 @@ Upload: Image -> Texture -> Particles -> AI Analysis.
 
 Chat: Voice/Text -> /api/chat -> JSON reply (typing effect is client-side).
 
-Save: Generate Diary -> Save Blob to IDB -> Enter Hall.
+Save: Generate Diary -> Save memory + asset render Blob to IDB -> Enter Hall.
 
 ## 5. Smoke Tests
 Boot: npm run dev (No console errors).
