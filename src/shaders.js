@@ -102,6 +102,7 @@ export const fragmentShader = `
 precision mediump float;
 uniform sampler2D uTexture; 
 uniform highp float uHasTexture; 
+uniform highp float uImageAspect;
 uniform highp float uPixelRatio; 
 uniform highp float uGridOpacity;
 uniform highp float uBrightness;
@@ -131,7 +132,12 @@ float hash12(vec2 p) {
 void main() {
     if (vVisible < 0.5) discard;
 
-    vec4 texColor = texture2D(uTexture, vUv);
+    float a = max(uImageAspect, 0.0001);
+    vec2 scale = (a > 1.0) ? vec2(1.0 / a, 1.0) : vec2(1.0, a);
+    vec2 uvCover = (vUv - 0.5) * scale + 0.5;
+    uvCover = clamp(uvCover, 0.0, 1.0);
+
+    vec4 texColor = texture2D(uTexture, uvCover);
     vec4 defaultColor = vec4(0.1, 0.15, 0.2, 1.0);
     if (mod(gl_FragCoord.x, 2.0) < 1.0 && mod(gl_FragCoord.y, 2.0) < 1.0) defaultColor += 0.05;
     vec4 finalColor = mix(defaultColor, texColor, uHasTexture);

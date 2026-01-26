@@ -1478,10 +1478,18 @@ export class App {
   }
 
   _setMeshScale(mesh, dimensions) {
-    if (!mesh || !dimensions?.width || !dimensions?.height) return;
-    const aspect = dimensions.width / dimensions.height;
-    if (aspect > 1) mesh.scale.set(1, 1 / aspect, 1);
-    else mesh.scale.set(aspect, 1, 1);
+    if (!mesh) return;
+    mesh.scale.set(1, 1, 1);
+
+    const uniforms = mesh.material?.uniforms;
+    if (!uniforms?.uImageAspect) return;
+
+    if (!dimensions?.width || !dimensions?.height) {
+      uniforms.uImageAspect.value = 1.0;
+      return;
+    }
+
+    uniforms.uImageAspect.value = dimensions.width / dimensions.height;
   }
 
   _yieldFrame() {

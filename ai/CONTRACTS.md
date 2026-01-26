@@ -20,4 +20,4 @@
 
 ## 4. Shader Uniforms
 - **Vertex**: `uTime`, `uSize`, `uWaveAmplitude`.
-- **Fragment**: `uTexture`, `uGridOpacity`.
+- **Fragment**: `uTexture`, `uGridOpacity`, `uImageAspect`.

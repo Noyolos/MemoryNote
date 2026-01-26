@@ -10,6 +10,7 @@ export function createEditorMaterial(settings) {
       uSize: { value: settings.particleSize * pixelRatio },
       uTexture: { value: null },
       uHasTexture: { value: 0.0 },
+      uImageAspect: { value: 1.0 },
       uPixelRatio: { value: pixelRatio },
 
       uWaveAmplitude: { value: settings.waveAmplitude },
